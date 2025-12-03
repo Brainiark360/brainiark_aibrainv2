@@ -4,8 +4,10 @@ export type EvidenceSourceType = "website" | "document" | "social" | "name";
 
 export interface EvidenceSourceInput {
   id: string;
-  type: EvidenceSourceType;
-  label: string;
+  type: 'website' | 'pdf' | 'image' | 'text';
+  content: string;
+  name?: string;
+  metadata?: Record<string, any>;  label: string;
   url?: string;
   file?: File;
 }

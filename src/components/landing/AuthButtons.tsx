@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import { motion } from 'framer-motion'
 import { LogIn, UserPlus, ChevronRight } from 'lucide-react'
+import Link from 'next/link'
 
 interface AuthButtonProps {
   variant?: 'primary' | 'outline' | 'ghost'
@@ -61,8 +62,8 @@ export default function AuthButton({
           className="absolute right-0 mt-2 w-48 rounded-md border border-[rgb(var(--border))] bg-[rgb(var(--os-surface-elevated))] shadow-lg z-50"
         >
           <div className="py-1">
-            <a
-              href="/auth/signin"
+            <Link
+              href="/auth/login"
               className="flex items-center px-4 py-3 text-sm hover:bg-[rgb(var(--accent))] transition-colors"
               onClick={() => setIsDropdownOpen(false)}
             >
@@ -71,8 +72,8 @@ export default function AuthButton({
                 <div className="font-medium">Sign In</div>
                 <div className="text-xs text-[rgb(var(--muted-foreground))]">Existing accounts</div>
               </div>
-            </a>
-            <a
+            </Link>
+            <Link
               href="/auth/signup"
               className="flex items-center px-4 py-3 text-sm hover:bg-[rgb(var(--accent))] transition-colors"
               onClick={() => setIsDropdownOpen(false)}
@@ -82,7 +83,7 @@ export default function AuthButton({
                 <div className="font-medium">Create Account</div>
                 <div className="text-xs text-[rgb(var(--muted-foreground))]">New to Brainiark</div>
               </div>
-            </a>
+            </Link>
           </div>
         </motion.div>
       )}
@@ -93,9 +94,7 @@ export default function AuthButton({
 // Standalone Sign Up Button
 export function SignUpButton({ size = 'md', className = '' }: { size?: 'sm' | 'md' | 'lg', className?: string }) {
   return (
-    <motion.a
-      whileHover={{ scale: 1.02 }}
-      whileTap={{ scale: 0.98 }}
+    <Link
       href="/auth/signup"
       className={`inline-flex items-center justify-center rounded-md bg-[rgb(var(--foreground))] text-[rgb(var(--background))] hover:opacity-90 transition-all ${className} ${
         size === 'sm' ? 'px-3 py-1.5 text-sm' :
@@ -105,6 +104,6 @@ export function SignUpButton({ size = 'md', className = '' }: { size?: 'sm' | 'm
     >
       <UserPlus className="h-4 w-4 mr-2" />
       Create Account
-    </motion.a>
+    </Link>
   )
 }
