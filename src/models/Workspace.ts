@@ -1,33 +1,56 @@
-// src/lib/models/Workspace.ts
+// src/models/Workspace.ts
+import { mongoose } from "@/lib/mongoose";
 import {
   Schema,
-  model,
-  models,
+  type Document,
   type Model,
-  type InferSchemaType,
-  Types,
+  models,
+  type Types,
 } from "mongoose";
 
-const WorkspaceSchema = new Schema(
+export interface IBrandWorkspace extends Document {
+  name: string;
+  slug: string;
+  ownerUserId: Types.ObjectId;
+  aiThreadId?: string;
+  brainId?: Types.ObjectId;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+const BrandWorkspaceSchema = new Schema<IBrandWorkspace>(
   {
-    userId: { type: Types.ObjectId, ref: "User", required: true, index: true },
-    name: { type: String, required: true, trim: true },
-    mode: {
+    name: {
       type: String,
-      enum: ["first-time", "new-client", "new-workspace"],
+      required: true,
+      trim: true,
+      maxlength: 200,
+    },
+    slug: {
+      type: String,
+      required: true,
+      trim: true,
+      lowercase: true,
+      unique: true,
+    },
+    ownerUserId: {
+      type: Schema.Types.ObjectId,
+      ref: "User",
       required: true,
     },
-    evidenceIds: [{ type: Types.ObjectId, ref: "Evidence" }],
+    aiThreadId: {
+      type: String,
+    },
+    brainId: {
+      type: Schema.Types.ObjectId,
+      ref: "BrandBrain",
+    },
   },
-  {
-    timestamps: true,
-  }
+  { timestamps: true }
 );
 
-export type WorkspaceDocument = InferSchemaType<typeof WorkspaceSchema> & {
-  _id: string;
-};
+BrandWorkspaceSchema.index({ ownerUserId: 1, slug: 1 });
 
-export const Workspace: Model<WorkspaceDocument> =
-  (models.Workspace as Model<WorkspaceDocument>) ||
-  model<WorkspaceDocument>("Workspace", WorkspaceSchema);
+export const BrandWorkspace: Model<IBrandWorkspace> =
+  models.BrandWorkspace ||
+  mongoose.model<IBrandWorkspace>("BrandWorkspace", BrandWorkspaceSchema);

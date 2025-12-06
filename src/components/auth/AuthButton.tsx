@@ -1,74 +1,43 @@
-import { ButtonHTMLAttributes, forwardRef } from "react"
-import { LucideIcon } from "lucide-react"
+"use client"
 
-interface AuthButtonProps extends ButtonHTMLAttributes<HTMLButtonElement> {
-  variant?: "primary" | "secondary" | "outline"
+import { forwardRef } from "react"
+import { motion } from "framer-motion"
+import { LucideIcon } from "lucide-react"
+import type { ButtonHTMLAttributes } from "react"
+import { cn } from "@/lib/utils"
+
+interface Props extends ButtonHTMLAttributes<HTMLButtonElement> {
   icon?: LucideIcon
   loading?: boolean
 }
 
-const AuthButton = forwardRef<HTMLButtonElement, AuthButtonProps>(
-  (
-    {
-      variant = "primary",
-      icon: Icon,
-      loading,
-      children,
-      className = "",
-      disabled,
-      ...props
-    },
-    ref
-  ) => {
-    const baseClasses = `
-      w-full rounded-lg px-4 py-2.5 text-sm font-medium
-      flex items-center justify-center gap-2
-      transition-all duration-200
-      active:scale-[0.97]
-      disabled:opacity-50 disabled:cursor-not-allowed
-      select-none
-    `
-
-    const variantClasses = {
-      primary: `
-        bg-[rgb(var(--foreground))] 
-        text-[rgb(var(--background))]
-        shadow-sm shadow-black/10 dark:shadow-none
-        hover:opacity-90
-      `,
-      secondary: `
-        bg-[rgb(var(--accent))] 
-        text-[rgb(var(--accent-foreground))]
-        hover:bg-[rgb(var(--accent))/0.9]
-      `,
-      outline: `
-        border border-[rgb(var(--border))]
-        text-[rgb(var(--foreground))]
-        hover:bg-[rgb(var(--accent))/0.6]
-        hover:border-[rgb(var(--accent))]
-        transition-colors
-      `,
-    }
+const AuthButton = forwardRef<HTMLButtonElement, Props>(
+  ({ icon: Icon, loading, children, className, disabled, ...props }, ref) => {
+    const isDisabled = disabled || loading
 
     return (
-      <button
+      <motion.button
         ref={ref}
-        className={`${baseClasses} ${variantClasses[variant]} ${className}`}
-        disabled={disabled || loading}
+        disabled={isDisabled}
+        whileTap={!isDisabled ? { scale: 0.97 } : {}}
+        className={cn(
+          "w-full rounded-lg px-4 py-2.5 text-sm font-medium flex items-center justify-center gap-2",
+          "transition-all bg-blue-600 text-white hover:bg-blue-700",
+          "disabled:bg-blue-400 disabled:cursor-not-allowed",
+          className
+        )}
         {...props}
       >
         {loading ? (
-          <div className="h-4 w-4 border-2 border-current border-t-transparent rounded-full animate-spin" />
+          <div className="h-4 w-4 rounded-full border-2 border-white border-t-transparent animate-spin" />
         ) : Icon ? (
-          <Icon className="h-4 w-4 text-current" />
+          <Icon className="h-4 w-4" />
         ) : null}
-
         {children}
-      </button>
+      </motion.button>
     )
   }
 )
 
 AuthButton.displayName = "AuthButton"
-
 export default AuthButton

@@ -1,23 +1,22 @@
-// src/app/api/auth/me/route.ts
+// /src/app/api/auth/me/route.ts
 import { NextResponse } from "next/server";
-import { getAuthUser } from "@/lib/auth";
+import { getCurrentUser } from "@/lib/auth";
 
 export async function GET() {
-  const user = await getAuthUser();
+  const user = await getCurrentUser();
 
   if (!user) {
-    return NextResponse.json({ user: null }, { status: 200 });
+    return NextResponse.json({
+      authenticated: false,
+    });
   }
 
-  return NextResponse.json(
-    {
-      user: {
-        id: user._id.toString(),
-        name: user.name,
-        email: user.email,
-        onboardingCompleted: user.onboardingCompleted,
-      },
+  return NextResponse.json({
+    authenticated: true,
+    user: {
+      email: user.email,
+      onboardingStatus: user.onboardingStatus,
+      onboardingStep: user.onboardingStep,
     },
-    { status: 200 }
-  );
+  });
 }

@@ -1,22 +1,18 @@
-// src/lib/auth.ts
-import { SignJWT, jwtVerify } from "jose";
+// /src/lib/auth.ts
 import bcrypt from "bcryptjs";
 import { cookies } from "next/headers";
-import type { NextRequest } from "next/server";
-import { User, UserDocument } from "@/models/Users";
 import { connectDB } from "./mongoose";
+import { verifyAuthToken } from "./jwt";
+import { IUser, User } from "@/models/User";
 
-const JWT_SECRET = process.env.JWT_SECRET;
-if (!JWT_SECRET) {
-  throw new Error("JWT_SECRET must be set in environment variables");
-}
+export const AUTH_COOKIE_NAME = "brain_session";
 
-const JWT_SECRET_KEY = new TextEncoder().encode(JWT_SECRET);
-const SESSION_COOKIE_NAME = "brain_session";
-
-export interface AuthTokenPayload {
-  userId: string;
+export interface AuthenticatedUser {
+  id: string;
   email: string;
+  onboardingStatus: IUser["onboardingStatus"];
+  onboardingStep: number;
+  workspaceId?: string | null;
 }
 
 export async function hashPassword(password: string): Promise<string> {
@@ -26,66 +22,31 @@ export async function hashPassword(password: string): Promise<string> {
 
 export async function verifyPassword(
   password: string,
-  hash: string
+  passwordHash: string
 ): Promise<boolean> {
-  return bcrypt.compare(password, hash);
+  return bcrypt.compare(password, passwordHash);
 }
 
-export async function createToken(payload: AuthTokenPayload): Promise<string> {
-  return new SignJWT(payload)
-    .setProtectedHeader({ alg: "HS256" })
-    .setIssuedAt()
-    .setExpirationTime("7d")
-    .sign(JWT_SECRET_KEY);
-}
-
-export async function verifyToken(
-  token: string
-): Promise<AuthTokenPayload | null> {
+export async function getCurrentUser(): Promise<AuthenticatedUser | null> {
   try {
-    const { payload } = await jwtVerify<AuthTokenPayload>(token, JWT_SECRET_KEY);
-    return payload;
-  } catch {
+    const cookieStore = await cookies();
+    const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
+    if (!token) return null;
+
+    const payload = verifyAuthToken(token);
+    await connectDB();
+    const user = await User.findById(payload.userId).exec();
+    if (!user) return null;
+
+    return {
+      id: user._id.toString(),
+      email: user.email,
+      onboardingStatus: user.onboardingStatus,
+      onboardingStep: user.onboardingStep,
+      workspaceId: user.workspaceId?.toString(),
+    };
+  } catch (err) {
+    console.error("[getCurrentUser] Failed to decode token:", err);
     return null;
   }
-}
-
-export async function setAuthCookie(token: string) {
-  const cookieStore = cookies();
-  cookieStore.set(SESSION_COOKIE_NAME, token, {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 60 * 60 * 24 * 7, // 7 days
-  });
-}
-
-export function clearAuthCookie() {
-  const cookieStore = cookies();
-  cookieStore.set(SESSION_COOKIE_NAME, "", {
-    httpOnly: true,
-    secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
-    path: "/",
-    maxAge: 0,
-  });
-}
-
-export async function getAuthUser(
-  req?: NextRequest
-): Promise<UserDocument | null> {
-  const cookieStore = cookies();
-  const token =
-    req?.cookies.get(SESSION_COOKIE_NAME)?.value ??
-    cookieStore.get(SESSION_COOKIE_NAME)?.value;
-
-  if (!token) return null;
-
-  const payload = await verifyToken(token);
-  if (!payload) return null;
-
-  await connectDB();
-  const user = await User.findById(payload.userId);
-  return user ?? null;
 }

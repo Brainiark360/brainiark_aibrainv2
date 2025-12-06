@@ -1,60 +1,40 @@
 "use client"
 
-import { ReactNode } from "react"
+import type { ReactNode } from "react"
 import { motion } from "framer-motion"
 
-interface AuthWindowProps {
+export default function AuthWindow({
+  title,
+  subtitle,
+  children,
+}: {
   title: string
   subtitle?: string
   children: ReactNode
-}
-
-export default function AuthWindow({ title, subtitle, children }: AuthWindowProps) {
+}) {
   return (
     <motion.div
-      initial={{ opacity: 0, y: 16 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.35, ease: "easeOut" }}
+      initial={{ opacity: 0, y: 20, scale: 0.97 }}
+      animate={{ opacity: 1, y: 0, scale: 1 }}
+      transition={{ duration: 0.4, ease: "easeOut" }}
       className="
-        os-window 
-        w-full 
-        max-w-md 
-        mx-auto 
-        shadow-xl 
-        backdrop-blur-xl 
-        rounded-xl
+        bg-[rgb(var(--card))]
+        border border-[rgb(var(--border))]
+        shadow-xl shadow-black/10
+        rounded-2xl
+        p-8
+        space-y-6
+        backdrop-blur-xl
       "
     >
-      {/* Header */}
-      <div
-        className="
-          os-window-header 
-          pb-4
-        "
-      >
-        <div className="space-y-1.5">
-          <h2 className="text-xl font-semibold tracking-tight">
-            {title}
-          </h2>
-
-          {subtitle && (
-            <p className="text-sm text-[rgb(var(--muted-foreground))] leading-relaxed max-w-sm">
-              {subtitle}
-            </p>
-          )}
-        </div>
+      <div className="space-y-2">
+        <h2 className="text-xl font-semibold tracking-tight">{title}</h2>
+        {subtitle && (
+          <p className="text-sm text-[rgb(var(--muted-foreground))]">{subtitle}</p>
+        )}
       </div>
 
-      {/* Content */}
-      <div
-        className="
-          os-window-content 
-          pt-6 pb-6 
-          space-y-6
-        "
-      >
-        {children}
-      </div>
+      <div className="space-y-6">{children}</div>
     </motion.div>
   )
 }
