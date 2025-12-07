@@ -1,47 +1,105 @@
-// /src/lib/ai/openai.ts
-import crypto from "crypto"
+// /lib/backend/openai.ts
+import { OpenAIMessage } from '@/types/onboarding';
+import OpenAI from 'openai';
 
-export interface AIThreadInitResult {
-  threadId: string
-  usedRemote: boolean
-}
+// Initialize OpenAI client with error handling
+let client: OpenAI | null = null;
 
-interface OpenAIThreadResponse {
-  id: string
-}
-
-export async function initBrandThread(brandId: string): Promise<AIThreadInitResult> {
-  const apiKey = process.env.OPENAI_API_KEY
-
-  if (!apiKey) {
-    // Fallback for local/dev without API key
-    return {
-      threadId: `local-thread-${brandId}-${Date.now()}`,
-      usedRemote: false,
-    }
+function getOpenAIClient(): OpenAI {
+  if (!process.env.OPENAI_API_KEY) {
+    throw new Error('OPENAI_API_KEY is not configured');
   }
+  
+  if (!client) {
+    client = new OpenAI({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+  }
+  
+  return client;
+}
 
-  const response = await fetch("https://api.openai.com/v1/threads", {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-      "Content-Type": "application/json",
+export async function createChatCompletion(
+  messages: OpenAIMessage[],
+  stream: boolean = true
+) {
+  try {
+    const openai = getOpenAIClient();
+    
+    return await openai.chat.completions.create({
+      model: 'gpt-4o',
+      stream,
+      messages,
+      temperature: 0.7,
+      max_tokens: 1000,
+    });
+  } catch (error: any) {
+    console.error('OpenAI API error:', error);
+    
+    if (error.status === 429) {
+      throw new Error('Rate limit exceeded. Please try again later.');
+    } else if (error.status === 401) {
+      throw new Error('Invalid API key. Please check your OpenAI configuration.');
+    } else if (error.status === 503) {
+      throw new Error('OpenAI service is temporarily unavailable.');
+    }
+    
+    throw new Error('Failed to generate AI response');
+  }
+}
+
+export async function createAnalysisCompletion(
+  systemPrompt: string,
+  userPrompt: string
+): Promise<string> {
+  try {
+    const openai = getOpenAIClient();
+    
+    const completion = await openai.chat.completions.create({
+      model: 'gpt-4o',
+      stream: false,
+      messages: [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt }
+      ],
+      temperature: 0.3,
+      max_tokens: 2000,
+    });
+
+    return completion.choices[0].message.content || '';
+  } catch (error: any) {
+    console.error('OpenAI analysis error:', error);
+    
+    if (error.status === 429) {
+      throw new Error('Analysis rate limit exceeded. Please try again later.');
+    }
+    
+    throw new Error('Failed to perform brand analysis');
+  }
+}
+
+export function streamToResponse(stream: any): ReadableStream {
+  const encoder = new TextEncoder();
+  
+  return new ReadableStream({
+    async start(controller) {
+      try {
+        for await (const chunk of stream) {
+          const content = chunk.choices[0]?.delta?.content || '';
+          if (content) {
+            controller.enqueue(encoder.encode(content));
+          }
+        }
+      } catch (error) {
+        console.error('Stream error:', error);
+        controller.enqueue(encoder.encode('Error generating response.'));
+      } finally {
+        controller.close();
+      }
     },
-    body: JSON.stringify({ metadata: { brandId } }),
-  })
-
-  if (!response.ok) {
-    // Fallback behavior if OpenAI creation fails
-    return {
-      threadId: `fallback-thread-${brandId}-${crypto.randomUUID()}`,
-      usedRemote: false,
+    cancel() {
+      // Clean up if stream is cancelled
+      console.log('Stream cancelled by client');
     }
-  }
-
-  const data = (await response.json()) as OpenAIThreadResponse
-
-  return {
-    threadId: data.id,
-    usedRemote: true,
-  }
+  });
 }

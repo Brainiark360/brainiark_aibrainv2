@@ -1,49 +1,46 @@
-// /src/components/ui/StreamingText.tsx
-"use client"
+// components/ui/StreamingText.tsx
+'use client';
 
-import { useEffect, useState } from "react"
+import { useEffect, useState } from 'react';
+import { motion } from 'framer-motion';
 
 interface StreamingTextProps {
-  messages: string[]
-  active: boolean
-  done: boolean
+  text: string;
+  speed?: number;
+  className?: string;
+  onComplete?: () => void;
 }
 
-export function StreamingText({ messages, active, done }: StreamingTextProps) {
-  const [visibleCount, setVisibleCount] = useState(0)
+export function StreamingText({ text, speed = 20, className = '', onComplete }: StreamingTextProps) {
+  const [displayedText, setDisplayedText] = useState('');
+  const [currentIndex, setCurrentIndex] = useState(0);
+  const [isComplete, setIsComplete] = useState(false);
 
   useEffect(() => {
-    if (!active) {
-      setVisibleCount(0)
-      return
+    if (currentIndex >= text.length) {
+      setIsComplete(true);
+      onComplete?.();
+      return;
     }
 
-    if (messages.length === 0) return
+    const timeout = setTimeout(() => {
+      setDisplayedText(prev => prev + text[currentIndex]);
+      setCurrentIndex(prev => prev + 1);
+    }, speed);
 
-    setVisibleCount(1)
-
-    const interval = setInterval(() => {
-      setVisibleCount((prev) => {
-        if (prev >= messages.length) {
-          clearInterval(interval)
-          return prev
-        }
-        return prev + 1
-      })
-    }, 1400)
-
-    return () => clearInterval(interval)
-  }, [active, messages])
-
-  const items = done ? messages : messages.slice(0, visibleCount)
+    return () => clearTimeout(timeout);
+  }, [currentIndex, text, speed, onComplete]);
 
   return (
-    <div className="space-y-1 text-xs text-[rgb(var(--muted-foreground))]">
-      {items.map((line, idx) => (
-        <p key={idx} className="leading-relaxed">
-          {line}
-        </p>
-      ))}
+    <div className={`relative ${className}`}>
+      <span className="text-gray-800">{displayedText}</span>
+      {!isComplete && (
+        <motion.span
+          animate={{ opacity: [1, 0, 1] }}
+          transition={{ duration: 1, repeat: Infinity }}
+          className="ml-0.5 w-[2px] h-5 bg-blue-500 inline-block"
+        />
+      )}
     </div>
-  )
+  );
 }

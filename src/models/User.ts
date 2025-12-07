@@ -1,70 +1,51 @@
-// /src/models/User.ts
-import { mongoose } from "@/lib/mongoose";
-import { Schema, Model, models, Document, Types } from "mongoose";
+import mongoose from 'mongoose';
 
-export type OnboardingStatus = "not_started" | "in_progress" | "completed";
-
-export interface IUser extends Document {
-  firstName: string;
-  lastName: string;
-  email: string;
-  phone: string;
-  passwordHash: string;
-  onboardingStatus: OnboardingStatus;
-  onboardingStep: number;
-  workspaceId: Types.ObjectId | null;
-  createdAt: Date;
-  updatedAt: Date;
-}
-
-const UserSchema = new Schema<IUser>(
-  {
-    firstName: {
-      type: String,
-      required: true,
-      trim: true,
-    },
-    lastName: {
-      type: String,
-      required: true,
-      trim: true,
-    },
-    email: {
-      type: String,
-      unique: true,
-      required: true,
-      lowercase: true,
-      trim: true,
-    },
-    phone: {
-      type: String,
-      required: true,
-      trim: true,
-    },
-    passwordHash: {
-      type: String,
-      required: true,
-    },
-    onboardingStatus: {
-      type: String,
-      enum: ["not_started", "in_progress", "completed"],
-      default: "not_started",
-    },
-    onboardingStep: {
-      type: Number,
-      default: 0,
-    },
-    workspaceId: {
-      type: Schema.Types.ObjectId,
-      ref: "BrandWorkspace",
-      required: false,
-      default: null,
-    },
+const UserSchema = new mongoose.Schema({
+  firstName: {
+    type: String,
+    required: [true, 'First name is required'],
+    trim: true,
   },
-  { timestamps: true }
-);
+  lastName: {
+    type: String,
+    required: [true, 'Last name is required'],
+    trim: true,
+  },
+  email: {
+    type: String,
+    required: [true, 'Email is required'],
+    unique: true,
+    lowercase: true,
+    trim: true,
+  },
+  phone: {
+    type: String,
+    trim: true,
+  },
+  passwordHash: {
+    type: String,
+    required: [true, 'Password hash is required'],
+  },
+  createdAt: {
+    type: Date,
+    default: Date.now,
+  },
+  updatedAt: {
+    type: Date,
+    default: Date.now,
+  },
+}, {
+  // Disable version key
+  versionKey: false,
+  // Disable automatic timestamps since we're handling them manually
+  timestamps: false,
+});
 
-UserSchema.index({ email: 1 }, { unique: true });
+// Remove ALL pre-save hooks
+// Compare password method
+UserSchema.methods.comparePassword = async function (candidatePassword: string) {
+  const bcrypt = await import('bcryptjs');
+  return bcrypt.compare(candidatePassword, this.passwordHash);
+};
 
-export const User: Model<IUser> =
-  models.User || mongoose.model<IUser>("User", UserSchema);
+export const User = mongoose.models.User || mongoose.model('User', UserSchema);

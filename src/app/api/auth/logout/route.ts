@@ -1,15 +1,16 @@
-// /src/app/api/auth/logout/route.ts
-import { NextResponse } from "next/server";
-import { AUTH_COOKIE_NAME } from "@/lib/auth";
+import { NextResponse } from 'next/server';
+import { deleteSession } from '@/lib/auth/session';
 
 export async function POST() {
-  const res = NextResponse.json({ success: true });
-
-  res.cookies.set(AUTH_COOKIE_NAME, "", {
-    httpOnly: true,
-    path: "/",
-    maxAge: 0,
-  });
-
-  return res;
+  try {
+    await deleteSession();
+    
+    return NextResponse.json({ success: true });
+  } catch (error) {
+    console.error('Logout error:', error);
+    return NextResponse.json(
+      { success: false, error: 'Internal server error' },
+      { status: 500 }
+    );
+  }
 }

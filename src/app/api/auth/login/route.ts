@@ -1,87 +1,63 @@
-// /src/app/api/auth/login/route.ts
-import { NextRequest, NextResponse } from "next/server";
-import { loginSchema } from "@/lib/zod-schemas";
-import { connectDB } from "@/lib/mongoose";
-import { User } from "@/models/User";
-import { verifyPassword } from "@/lib/auth";
-import { signAuthToken } from "@/lib/jwt";
-import { AUTH_COOKIE_NAME } from "@/lib/auth";
+import { NextRequest, NextResponse } from 'next/server';
 
-export async function POST(req: NextRequest) {
+import { createSession } from '@/lib/auth/session';
+import { LoginSchema } from '@/lib/zod/schemas';
+import { connectToDatabase } from '@/db/db';
+import { User } from '@/models/User';
+
+export async function POST(request: NextRequest) {
   try {
-    const body = await req.json();
+    await connectToDatabase();
 
-    const parsed = loginSchema.safeParse(body);
-    if (!parsed.success) {
-      const issue = parsed.error.issues[0];
+    const body = await request.json();
+    const validation = LoginSchema.safeParse(body);
+
+    if (!validation.success) {
       return NextResponse.json(
-        { success: false, error: issue?.message ?? "Invalid login credentials." },
+        { 
+          success: false, 
+          error: validation.error.errors[0].message 
+        },
         { status: 400 }
       );
     }
 
-    const { email, password } = parsed.data;
-    const lowerEmail = email.toLowerCase();
+    const { email, password } = validation.data;
 
-    await connectDB();
-
-    // Lookup user
-    const user = await User.findOne({ email: lowerEmail });
+    // Find user
+    const user = await User.findOne({ email });
     if (!user) {
       return NextResponse.json(
-        { success: false, error: "Incorrect email or password." },
+        { success: false, error: 'Invalid credentials' },
         { status: 401 }
       );
     }
 
-    // Validate password
-    const valid = await verifyPassword(password, user.passwordHash);
-    if (!valid) {
+    // Verify password
+    const isValidPassword = await user.comparePassword(password);
+    if (!isValidPassword) {
       return NextResponse.json(
-        { success: false, error: "Incorrect email or password." },
+        { success: false, error: 'Invalid credentials' },
         { status: 401 }
       );
     }
 
-    // Issue JWT
-    const token = signAuthToken({
-      userId: user._id.toString(),
-      email: user.email,
-    });
+    // Create session
+    await createSession(user._id.toString());
 
-    const res = NextResponse.json(
-      {
-        success: true,
-        data: {
-          redirectTo:
-            user.onboardingStatus === "completed"
-              ? `/workspace/${user.workspaceId}`
-              : `/onboarding`,
-        },
+    return NextResponse.json({
+      success: true,
+      data: {
+        id: user._id,
+        firstName: user.firstName,
+        lastName: user.lastName,
+        email: user.email,
       },
-      { status: 200 }
-    );
-
-    // Set cookie
-    res.cookies.set(AUTH_COOKIE_NAME, token, {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production",
-      sameSite: "lax",
-      path: "/",
-      maxAge: 60 * 60 * 24 * 7,
     });
-
-    return res;
-  } catch (err) {
-    console.error("[AUTH_LOGIN_ERROR]", err);
-
-    const message =
-      process.env.NODE_ENV === "development" && err instanceof Error
-        ? err.message
-        : "Login failed. Please try again.";
-
+  } catch (error) {
+    console.error('Login error:', error);
     return NextResponse.json(
-      { success: false, error: message },
+      { success: false, error: 'Internal server error' },
       { status: 500 }
     );
   }

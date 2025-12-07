@@ -1,75 +1,73 @@
-// src/app/workspace/[slug]/page.tsx
-import { redirect } from "next/navigation";
-import { getCurrentUser } from "@/lib/auth";
-import { connectDB } from "@/lib/mongoose";
-import { BrandWorkspace } from "@/models/Workspace";
-import { BrandBrain } from "@/models/BrandBrain";
+// /app/workspace/[slug]/page.tsx - UPDATED
+import { BrandBrain } from '@/models/BrandBrain';
+import OnboardingWorkspaceLayout from '@/components/onboarding/OnboardingWorkspaceLayout';
+import { verifySession } from '@/lib/auth/session';
+import { connectToDatabase } from '@/db/db';
+import { BrandWorkspace } from '@/models/Workspace';
+import { redirect } from 'next/navigation';
+import WorkspaceDashboard from '@/components/workspace/WorkSpaceDashboard';
 
-interface WorkspacePageProps {
-  params: { slug: string };
+interface PageProps {
+  params: Promise<{ slug: string }>;
 }
 
-export default async function WorkspacePage({ params }: WorkspacePageProps) {
-  const user = await getCurrentUser();
-  if (!user) {
-    redirect("/auth/login");
+export default async function WorkspacePage({ params }: PageProps) {
+  const session = await verifySession();
+  if (!session) {
+    redirect('/auth/login');
   }
 
-  await connectDB();
+  await connectToDatabase();
+  const { slug } = await params;
 
-  const workspace = await BrandWorkspace.findOne({
-    slug: params.slug,
-    ownerUserId: user.id,
-  }).exec();
+  const brand = await BrandWorkspace.findOne({ 
+    slug,
+    ownerUserId: session.userId 
+  });
 
-  if (!workspace) {
-    redirect("/onboarding/select-brand");
+  if (!brand) {
+    redirect('/dashboard');
   }
 
-  const brain = await BrandBrain.findOne({
-    brandWorkspaceId: workspace._id,
-  }).exec();
+  const brandBrain = await BrandBrain.findOne({ 
+    brandWorkspaceId: brand._id 
+  });
 
-  return (
-    <main className="min-h-screen bg-[rgb(var(--background))]">
-      <div className="mx-auto flex max-w-6xl flex-col gap-8 px-4 py-8">
-        <header className="flex flex-col gap-2 md:flex-row md:items-center md:justify-between">
-          <div>
-            <h1 className="text-2xl font-semibold text-[rgb(var(--foreground))]">
-              {workspace.name}
-            </h1>
-            <p className="text-xs text-[rgb(var(--muted-foreground))]">
-              Strategy-first workspace · /workspace/{workspace.slug}
-            </p>
-          </div>
-          {/* TODO: BrandSwitcher component */}
-        </header>
+  // Check if onboarding is needed
+  const needsOnboarding = brandBrain?.status !== 'ready' && brandBrain?.isActivated !== true;
 
-        <section className="grid gap-6 md:grid-cols-3">
-          <div className="space-y-4 md:col-span-2">
-            <div className="rounded-2xl border border-[rgb(var(--border))] bg-[rgb(var(--card))] p-4 shadow-sm">
-              <h2 className="text-sm font-semibold text-[rgb(var(--foreground))]">
-                Brand Summary
-              </h2>
-              <p className="mt-1 text-sm text-[rgb(var(--muted-foreground))]">
-                {brain?.summary || "Once we complete onboarding, this will show your brand summary."}
-              </p>
-            </div>
-          </div>
+  // If onboarding is complete, show the full workspace dashboard
+  if (!needsOnboarding && brandBrain) {
+    const workspaceSummary = {
+      userName: "Alex",
+      workspaceName: brand.name,
+      evidence: [],
+      scores: {
+        identityStrength: 87,
+        toneClarity: 92,
+        audienceConfidence: brandBrain.audience ? 78 : 45,
+        strategyReadiness: 65,
+        completionScore: 100
+      },
+      insights: {
+        toneSummary: brandBrain.tone || "Professional and clear",
+        corePillars: brandBrain.pillars || ["Brand Identity", "Market Position"],
+        audienceSegments: brandBrain.audience ? [brandBrain.audience] : ["Target Audience"],
+        keywords: ["Brand", "Strategy", "Growth"],
+        brandArchetype: "Established",
+        writingStyle: brandBrain.tone || "Professional"
+      },
+      recommendations: [],
+      recentActivity: []
+    };
 
-          <aside className="space-y-4">
-            <div className="rounded-2xl border border-[rgb(var(--border))] bg-[rgb(var(--secondary))] p-4 shadow-sm">
-              <h3 className="text-sm font-semibold text-[rgb(var(--foreground))]">
-                Next steps
-              </h3>
-              <p className="mt-1 text-xs text-[rgb(var(--muted-foreground))]">
-                Complete onboarding to unlock the full strategy, calendar, and content
-                modules for this brand.
-              </p>
-            </div>
-          </aside>
-        </section>
+    return (
+      <div className="pb-16">
+        <WorkspaceDashboard summary={workspaceSummary} />
       </div>
-    </main>
-  );
+    );
+  }
+
+  // Show conversational AI onboarding
+  return <OnboardingWorkspaceLayout />;
 }
