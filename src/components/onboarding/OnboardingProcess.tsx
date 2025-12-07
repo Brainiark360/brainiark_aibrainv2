@@ -1,4 +1,3 @@
-// /components/onboarding/OnboardingProgress.tsx - SIMPLIFIED VERSION
 'use client';
 
 import { motion } from 'framer-motion';
@@ -9,41 +8,61 @@ import {
   Brain, 
   Zap,
   Sparkles,
-  ChevronRight
+  ChevronRight,
+  MessageSquare,
+  Search,
+  Eye
 } from 'lucide-react';
+import { OnboardingStep } from '@/types/onboarding';
 
 interface OnboardingProgressProps {
-  currentStep: number;
-  onStepClick?: (step: number) => void;
+  currentStep: OnboardingStep;
+  onStepClick?: (step: OnboardingStep) => void;
 }
+
+// Map string steps to numeric indices for the progress bar
+const stepOrder: OnboardingStep[] = [
+  'intro',
+  'collecting_evidence', 
+  'waiting_for_analysis',
+  'analyzing',
+  'reviewing_brand_brain', 
+  'complete'
+];
 
 const steps = [
   { 
-    id: 1, 
+    id: 'intro' as OnboardingStep,
     label: 'Welcome', 
     icon: Sparkles,
     description: 'Get started with onboarding'
   },
   { 
-    id: 2, 
+    id: 'collecting_evidence' as OnboardingStep,
     label: 'Evidence', 
     icon: FileText,
     description: 'Add brand materials'
   },
   { 
-    id: 3, 
+    id: 'waiting_for_analysis' as OnboardingStep,
+    label: 'Ready', 
+    icon: Target,
+    description: 'Ready for analysis'
+  },
+  { 
+    id: 'analyzing' as OnboardingStep,
     label: 'Analysis', 
     icon: Brain,
     description: 'AI processing insights'
   },
   { 
-    id: 4, 
+    id: 'reviewing_brand_brain' as OnboardingStep,
     label: 'Review', 
-    icon: Target,
+    icon: Eye,
     description: 'Verify brand insights'
   },
   { 
-    id: 5, 
+    id: 'complete' as OnboardingStep,
     label: 'Complete', 
     icon: CheckCircle,
     description: 'Ready to launch'
@@ -54,7 +73,10 @@ export default function OnboardingProgress({
   currentStep, 
   onStepClick 
 }: OnboardingProgressProps) {
-  const completedPercentage = Math.round((currentStep / steps.length) * 100);
+  const currentStepIndex = stepOrder.indexOf(currentStep);
+  const completedSteps = Math.max(0, currentStepIndex);
+  const totalSteps = stepOrder.length;
+  const completedPercentage = Math.round((completedSteps / (totalSteps - 1)) * 100);
   const currentStepData = steps.find(step => step.id === currentStep);
 
   return (
@@ -71,7 +93,7 @@ export default function OnboardingProgress({
                 Onboarding Journey
               </h3>
               <p className="body-os text-[rgb(var(--muted-foreground))]">
-                {currentStepData?.description || `Step ${currentStep} of ${steps.length}`}
+                {currentStepData?.description || `Step ${currentStepIndex + 1} of ${totalSteps}`}
               </p>
             </div>
           </div>
@@ -96,7 +118,7 @@ export default function OnboardingProgress({
         
         <motion.div
           initial={{ width: 0 }}
-          animate={{ width: `${Math.max(0, (currentStep - 1) / (steps.length - 1)) * 100}%` }}
+          animate={{ width: `${Math.max(0, (completedSteps / (totalSteps - 1)) * 100)}%` }}
           transition={{ duration: 1, ease: "easeOut" }}
           className="absolute top-5 left-4 h-0.5 bg-gradient-to-r from-[rgb(var(--os-accent))] to-purple-500 z-10"
         />
@@ -104,9 +126,10 @@ export default function OnboardingProgress({
         {/* Step Indicators */}
         <div className="relative flex justify-between z-20">
           {steps.map((step, index) => {
-            const isCompleted = step.id < currentStep;
+            const stepIndex = stepOrder.indexOf(step.id);
+            const isCompleted = stepIndex < currentStepIndex;
             const isCurrent = step.id === currentStep;
-            const isUpcoming = step.id > currentStep;
+            const isUpcoming = stepIndex > currentStepIndex;
             
             return (
               <motion.button
@@ -133,6 +156,11 @@ export default function OnboardingProgress({
                   >
                     {isCompleted ? (
                       <CheckCircle className="w-5 h-5" />
+                    ) : isCurrent ? (
+                      <div className="relative">
+                        <step.icon className="w-5 h-5" />
+                        <div className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-[rgb(var(--os-accent))] animate-pulse" />
+                      </div>
                     ) : (
                       <step.icon className="w-5 h-5" />
                     )}
@@ -147,7 +175,7 @@ export default function OnboardingProgress({
                         : 'bg-[rgb(var(--muted))] text-[rgb(var(--muted-foreground))]'
                       }
                     `}>
-                      {step.id}
+                      {stepIndex + 1}
                     </div>
                   </div>
                 </div>
@@ -177,34 +205,40 @@ export default function OnboardingProgress({
           <div className="flex items-center gap-4">
             <div className={`
               w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0
-              ${currentStepData.id < currentStep
+              ${isCompleted 
                 ? 'bg-green-500/10 text-green-600'
+                : currentStep === 'analyzing'
+                ? 'bg-purple-500/10 text-purple-600'
                 : 'bg-[rgb(var(--os-accent-soft))] text-[rgb(var(--os-accent))]'
               }
             `}>
-              {currentStepData.id < currentStep ? (
+              {isCompleted ? (
                 <CheckCircle className="w-5 h-5" />
-              ) : (
+              ) : currentStep === 'analyzing' ? (
                 <div className="w-5 h-5 border-2 border-current border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <MessageSquare className="w-5 h-5" />
               )}
             </div>
             
             <div className="flex-1">
               <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-2">
                 <h4 className="font-semibold text-[rgb(var(--foreground))]">
-                  {currentStepData.label}
+                  {getStepTitle(currentStep)}
                 </h4>
                 <div className="flex items-center gap-2">
                   <div className={`
                     px-3 py-1 rounded-full text-xs font-medium
-                    ${currentStepData.id < currentStep
+                    ${currentStep === 'complete'
                       ? 'bg-green-500/10 text-green-600'
+                      : currentStep === 'analyzing'
+                      ? 'bg-purple-500/10 text-purple-600'
                       : 'bg-[rgb(var(--os-accent-soft))] text-[rgb(var(--os-accent))]'
                     }
                   `}>
-                    {currentStepData.id < currentStep ? 'Completed' : 'In Progress'}
+                    {getStepStatus(currentStep)}
                   </div>
-                  {currentStepData.id === currentStep && (
+                  {currentStep !== 'complete' && currentStep !== 'analyzing' && (
                     <div className="flex items-center gap-1">
                       <div className="w-2 h-2 rounded-full bg-[rgb(var(--os-accent))] animate-pulse" />
                       <span className="text-xs text-[rgb(var(--muted-foreground))]">
@@ -216,11 +250,7 @@ export default function OnboardingProgress({
               </div>
               
               <p className="body-os text-[rgb(var(--muted-foreground))]">
-                {currentStep === 1 && "Welcome to your brand workspace setup. Let's get started by understanding your brand."}
-                {currentStep === 2 && "Add your brand materials - websites, documents, social profiles, or any brand assets."}
-                {currentStep === 3 && "Brainiark AI is analyzing your brand evidence to build a comprehensive understanding."}
-                {currentStep === 4 && "Review and verify the insights generated from your brand analysis."}
-                {currentStep === 5 && "Onboarding complete! Your brand brain is now ready to power your content and strategy."}
+                {getStepDescription(currentStep)}
               </p>
             </div>
           </div>
@@ -228,4 +258,54 @@ export default function OnboardingProgress({
       )}
     </div>
   );
+}
+
+// Helper functions for step details
+function getStepTitle(step: OnboardingStep): string {
+  switch (step) {
+    case 'intro': return 'Welcome & Introduction';
+    case 'collecting_evidence': return 'Collect Brand Evidence';
+    case 'waiting_for_analysis': return 'Ready for Analysis';
+    case 'analyzing': return 'AI Analysis in Progress';
+    case 'reviewing_brand_brain': return 'Review Brand Brain';
+    case 'complete': return 'Onboarding Complete';
+    default: return 'Onboarding';
+  }
+}
+
+function getStepStatus(step: OnboardingStep): string {
+  switch (step) {
+    case 'intro': return 'Conversation';
+    case 'collecting_evidence': return 'Collecting';
+    case 'waiting_for_analysis': return 'Ready';
+    case 'analyzing': return 'Processing';
+    case 'reviewing_brand_brain': return 'Reviewing';
+    case 'complete': return 'Completed';
+    default: return 'Active';
+  }
+}
+
+function getStepDescription(step: OnboardingStep): string {
+  switch (step) {
+    case 'intro': 
+      return "Welcome to your brand workspace setup. Let's have a conversation about your brand and what makes it unique.";
+    case 'collecting_evidence': 
+      return "Add your brand materials - websites, documents, social profiles, or any brand assets. The AI will analyze them to understand your brand.";
+    case 'waiting_for_analysis': 
+      return "You've added evidence. Ready to have the AI analyze your brand and build your Brand Brain?";
+    case 'analyzing': 
+      return "Brainiark AI is analyzing your brand evidence to build a comprehensive understanding. This usually takes about a minute.";
+    case 'reviewing_brand_brain': 
+      return "Review and verify the insights generated from your brand analysis. You can edit, refine, and approve each section.";
+    case 'complete': 
+      return "Onboarding complete! Your brand brain is now ready to power your content and strategy.";
+    default: 
+      return "Progressing through brand onboarding.";
+  }
+}
+
+function isCompleted(step: OnboardingStep, currentStep: OnboardingStep): boolean {
+  const currentIndex = stepOrder.indexOf(currentStep);
+  const stepIndex = stepOrder.indexOf(step);
+  return stepIndex < currentIndex;
 }

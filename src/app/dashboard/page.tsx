@@ -4,7 +4,7 @@ import { verifySession } from '@/lib/auth/session';
 import { DashboardLayout } from '@/components/dashboard/DashboardLayout';
 import { BrandCard } from '@/components/dashboard/BrandCard';
 import { CreateBrandCard } from '@/components/dashboard/CreateBrandCard';
-import { connectToDatabase } from '@/db/db';
+import { connectToDatabase } from '@/db/db-optimized';
 import { BrandWorkspace } from '@/models/Workspace';
 import OnboardingPrompt from '@/components/onboarding/OnboardingPrompt';
 import { BrandBrain } from '@/models/BrandBrain';
@@ -20,18 +20,21 @@ export default async function DashboardPage() {
   
   const brands = await BrandWorkspace.find({ 
     ownerUserId: session.userId 
-  }).sort({ createdAt: -1 });
+  }).sort({ createdAt: -1 }).lean();
 
   // Check for incomplete onboarding
   const incompleteBrands = await Promise.all(
     brands.map(async (brand) => {
       const brandBrain = await BrandBrain.findOne({ 
         brandWorkspaceId: brand._id 
-      });
+      }).lean();
+      
+      const completionScore = brandBrain?.status === 'ready' ? 100 : 
+                             brandBrain?.status === 'in_progress' ? 50 : 0;
+      
       return {
         brand,
-        completionScore: brandBrain?.status === 'ready' ? 100 : 
-                        brandBrain?.status === 'in_progress' ? 50 : 0,
+        completionScore,
         needsOnboarding: brandBrain?.status !== 'ready',
       };
     })

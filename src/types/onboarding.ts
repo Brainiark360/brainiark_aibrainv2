@@ -158,6 +158,7 @@ export interface OnboardingState {
   chatMessages?: ChatMessage[];
 }
 
+// Add chatMessages to the context type
 export interface OnboardingContextType {
   // State
   step: OnboardingStep;
@@ -166,6 +167,7 @@ export interface OnboardingContextType {
   activeSection: BrandBrainSection | null;
   isLoading: boolean;
   error: string | null;
+  chatMessages: ChatMessage[]; // <-- ADD THIS
   
   // Actions
   updateStep: (step: OnboardingStep) => Promise<void>;

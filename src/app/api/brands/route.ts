@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { verifySession } from '@/lib/auth/session';
 import { BrandCreateSchema } from '@/lib/zod/schemas';
-import { connectToDatabase } from '@/db/db';
+import { connectToDatabase } from '@/db/db-optimized';
 import { BrandWorkspace } from '@/models/Workspace';
 import { BrandBrain } from '@/models/BrandBrain';
 
@@ -89,11 +89,42 @@ export async function POST(request: NextRequest) {
       slug,
     });
 
-    // Create associated brand brain
-    await BrandBrain.create({
-      brandWorkspaceId: brand._id,
-      status: 'not_started',
-    });
+    // Create associated brand brain with ALL required fields
+    try {
+      await BrandBrain.create({
+        brandWorkspaceId: brand._id,
+        brandSlug: slug, // Required field
+        summary: '',
+        audience: '',
+        tone: '',
+        pillars: [],
+        recommendations: [], // Add this field
+        offers: '',
+        competitors: [],
+        channels: [],
+        evidence: [],
+        status: 'not_started',
+        isActivated: false,
+        onboardingStep: 1,
+      });
+    } catch (brainError: any) {
+      console.error('BrandBrain creation error:', brainError);
+      
+      // If BrandBrain creation fails, delete the brand
+      await BrandWorkspace.findByIdAndDelete(brand._id);
+      
+      // Provide specific error message
+      let errorMessage = 'Failed to create brand configuration';
+      if (brainError.code === 11000) {
+        errorMessage = 'Brand configuration already exists for this workspace';
+      } else if (brainError.errors) {
+        // Get the first validation error
+        const firstError = Object.values(brainError.errors)[0] as any;
+        errorMessage = firstError.message || errorMessage;
+      }
+      
+      throw new Error(errorMessage);
+    }
 
     return NextResponse.json({
       success: true,
@@ -103,10 +134,17 @@ export async function POST(request: NextRequest) {
         slug: brand.slug,
       },
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('Create brand error:', error);
+    
+    // More specific error message
+    const errorMessage = error.message || 'Internal server error';
+    
     return NextResponse.json(
-      { success: false, error: 'Internal server error' },
+      { 
+        success: false, 
+        error: errorMessage,
+      },
       { status: 500 }
     );
   }

@@ -28,7 +28,7 @@ const initialState: OnboardingState = {
   activeSection: null,
   isLoading: false,
   error: null,
-  chatMessages: [],
+  chatMessages: [], // <-- Make sure this exists
 };
 
 // Create context
@@ -159,9 +159,27 @@ function onboardingReducer(state: OnboardingState, action: OnboardingEvent): Onb
       };
     
     case 'CHAT_MESSAGE_ADDED':
+      const newMessage = action.payload.message;
+      
+      // If this is an AI message with an ID we've seen before, replace it
+      if (newMessage.role === 'assistant' && newMessage.id) {
+        const existingIndex = state.chatMessages?.findIndex(m => m.id === newMessage.id) ?? -1;
+        
+        if (existingIndex >= 0 && state.chatMessages) {
+          // Replace existing message
+          const updatedMessages = [...state.chatMessages];
+          updatedMessages[existingIndex] = newMessage;
+          return {
+            ...state,
+            chatMessages: updatedMessages,
+          };
+        }
+      }
+      
+      // Otherwise, add as new message
       return {
         ...state,
-        chatMessages: [...(state.chatMessages || []), action.payload.message],
+        chatMessages: [...(state.chatMessages || []), newMessage],
       };
     
     case 'COMPLETE_ONBOARDING':
@@ -513,10 +531,10 @@ export function OnboardingStateManager({ children }: OnboardingProviderProps) {
     }
   }, [slug, apiCall]);
   
-  // Send chat message (streaming will be implemented in Phase 2)
+ // In /components/onboarding/OnboardingStateManager.tsx
   const sendChatMessage = useCallback(async (message: string) => {
     try {
-      // Add user message to chat
+      // Add user message
       const userMessage: ChatMessage = {
         id: `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
         role: 'user',
@@ -526,19 +544,18 @@ export function OnboardingStateManager({ children }: OnboardingProviderProps) {
 
       dispatch({ type: 'CHAT_MESSAGE_ADDED', payload: { message: userMessage } });
 
-      // Create AI message with loading state
-      const aiMessageId = `ai-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-      const aiMessage: ChatMessage = {
-        id: aiMessageId,
+      // Add AI loading message
+      const aiLoadingMessage: ChatMessage = {
+        id: `ai-loading-${Date.now()}`,
         role: 'assistant',
         content: '',
         timestamp: new Date(),
         isLoading: true,
       };
 
-      dispatch({ type: 'CHAT_MESSAGE_ADDED', payload: { message: aiMessage } });
+      dispatch({ type: 'CHAT_MESSAGE_ADDED', payload: { message: aiLoadingMessage } });
 
-      // Send streaming request to backend
+      // Send to backend
       const response = await fetch(`/api/brands/${slug}/onboarding/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -549,126 +566,124 @@ export function OnboardingStateManager({ children }: OnboardingProviderProps) {
             brandBrain: state.brandBrain,
             evidence: state.evidence,
             activeSection: state.activeSection,
+            previousMessages: state.chatMessages?.slice(-5) || [], // Send last 5 messages for context
           }
         }),
       });
 
-      if (!response.ok || !response.body) {
-        throw new Error(`Chat failed: ${response.statusText}`);
-      }
+      if (!response.ok) throw new Error(`Chat failed: ${response.statusText}`);
 
-      // Set up streaming reader
-      const reader = response.body.getReader();
+      // Process streaming response
+      const reader = response.body?.getReader();
+      if (!reader) throw new Error('No response body');
+
       const decoder = new TextDecoder();
       let accumulatedContent = '';
-      let isFirstChunk = true;
+      const aiMessageId = `ai-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
 
-      // Function to update the AI message content
-      const updateAIMessage = (newContent: string) => {
-        dispatch({
-          type: 'CHAT_MESSAGE_ADDED',
-          payload: {
-            message: {
-              id: aiMessageId,
-              role: 'assistant',
-              content: newContent,
-              timestamp: new Date(),
-              isLoading: false,
-            },
-          },
+      // Function to update AI message
+      const updateAIMessage = (content: string, isLoading = false) => {
+        const updatedMessage: ChatMessage = {
+          id: aiMessageId,
+          role: 'assistant',
+          content,
+          timestamp: new Date(),
+          isLoading,
+        };
+        
+        dispatch({ 
+          type: 'CHAT_MESSAGE_ADDED', 
+          payload: { message: updatedMessage } 
         });
       };
 
       try {
-        // Process the stream
         while (true) {
           const { done, value } = await reader.read();
-          
-          if (done) {
-            // Stream complete
-            break;
-          }
+          if (done) break;
 
-          // Decode the chunk
           const chunk = decoder.decode(value, { stream: true });
           accumulatedContent += chunk;
-          
-          // Update message with current content
-          if (isFirstChunk) {
-            isFirstChunk = false;
-            // Remove loading indicator on first chunk
-            updateAIMessage(accumulatedContent);
-          } else {
-            updateAIMessage(accumulatedContent);
-          }
-
-          // Extract and handle actions from AI response
-          // The AI might embed action markers like [ACTION:button_label:action_type]
-          if (accumulatedContent.includes('[ACTION:')) {
-            const actionMatches = accumulatedContent.match(/\[ACTION:([^:]+):([^\]]+)\]/g);
-            if (actionMatches) {
-              // Extract actions for potential UI buttons
-              // For now, we'll just log them - the UI can parse them later
-              console.log('AI actions detected:', actionMatches);
-            }
-          }
+          updateAIMessage(accumulatedContent, false);
         }
 
-        // Final update to ensure complete message
-        updateAIMessage(accumulatedContent.trim());
+        // Final update
+        updateAIMessage(accumulatedContent.trim(), false);
+
+        // ========== CRITICAL: AUTO-PROGRESS ONBOARDING BASED ON AI RESPONSE ==========
+        // Analyze AI response to determine if we should progress onboarding
+        const aiResponse = accumulatedContent.toLowerCase();
+        
+        // Check for evidence collection triggers
+        if (state.step === 'intro' && 
+            (aiResponse.includes('website') || 
+            aiResponse.includes('social') || 
+            aiResponse.includes('document') ||
+            aiResponse.includes('evidence') ||
+            aiResponse.includes('collect'))) {
+          // Move to evidence collection step
+          await updateStep('collecting_evidence');
+        }
+        
+        // Check for analysis triggers
+        if (state.step === 'collecting_evidence' && 
+            state.evidence.length >= 1 && // At least some evidence
+            (aiResponse.includes('analyze') || 
+            aiResponse.includes('brand brain') ||
+            aiResponse.includes('start analysis') ||
+            aiResponse.includes('ready to analyze'))) {
+          // Move to analysis step
+          await updateStep('waiting_for_analysis');
+          
+          // Auto-start analysis after a brief delay
+          setTimeout(async () => {
+            await startAnalysis();
+          }, 1000);
+        }
+        
+        // Check for brand brain review triggers
+        if (state.step === 'analyzing' && 
+            aiResponse.includes('review') &&
+            aiResponse.includes('brand brain')) {
+          // Move to review step
+          await updateStep('reviewing_brand_brain');
+        }
+        
+        // Check for completion triggers
+        if (state.step === 'reviewing_brand_brain' && 
+            (aiResponse.includes('complete') || 
+            aiResponse.includes('finish') ||
+            aiResponse.includes('done'))) {
+          // Complete onboarding
+          await completeOnboarding();
+        }
 
       } catch (streamError) {
-        console.error('Stream reading error:', streamError);
-        
-        // Update with error message
-        dispatch({
-          type: 'CHAT_MESSAGE_ADDED',
-          payload: {
-            message: {
-              id: aiMessageId,
-              role: 'assistant',
-              content: 'Sorry, I encountered an error while processing your message. Please try again.',
-              timestamp: new Date(),
-              isLoading: false,
-            },
-          },
-        });
-        
+        console.error('Stream error:', streamError);
+        updateAIMessage('Sorry, I encountered an error. Please try again.', false);
         throw streamError;
       } finally {
         reader.releaseLock();
       }
 
     } catch (error) {
-      console.error('Error sending chat message:', error);
+      console.error('Chat error:', error);
       
-      // Create error message
       const errorMessage: ChatMessage = {
         id: `error-${Date.now()}`,
         role: 'assistant',
-        content: error instanceof Error 
-          ? `I'm having trouble connecting right now: ${error.message}. Please try again in a moment.`
-          : 'Network error. Please check your connection and try again.',
+        content: 'Sorry, I had trouble processing your message. Please try again.',
         timestamp: new Date(),
         isLoading: false,
       };
       
       dispatch({ type: 'CHAT_MESSAGE_ADDED', payload: { message: errorMessage } });
       
-      dispatch({ 
-        type: 'ERROR', 
-        payload: { 
-          error: error instanceof Error 
-            ? `Chat error: ${error.message}` 
-            : 'Failed to send chat message' 
-        } 
-      });
-      
       throw error;
     }
-  }, [slug, state.step, state.brandBrain, state.evidence, state.activeSection, dispatch]);
-  
-  // Event dispatcher with side effects
+  }, [slug, state.step, state.brandBrain, state.evidence, state.activeSection, state.chatMessages, dispatch, updateStep, startAnalysis, completeOnboarding]);
+    
+// Event dispatcher with side effects
   const handleDispatch = useCallback(async (event: OnboardingEvent) => {
     try {
       switch (event.type) {
@@ -753,6 +768,7 @@ export function OnboardingStateManager({ children }: OnboardingProviderProps) {
     activeSection: state.activeSection,
     isLoading: state.isLoading,
     error: state.error,
+    chatMessages: state.chatMessages || [], // <-- ADD THIS
     
     // Actions
     updateStep,

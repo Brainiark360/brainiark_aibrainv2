@@ -21,6 +21,11 @@ export function CreateBrandModal({ onClose, onBrandCreated }: CreateBrandModalPr
       return;
     }
 
+    if (brandName.trim().length < 2) {
+      setError('Brand name must be at least 2 characters');
+      return;
+    }
+
     setIsLoading(true);
     setError('');
 
@@ -43,8 +48,9 @@ export function CreateBrandModal({ onClose, onBrandCreated }: CreateBrandModalPr
       
       // Close modal and navigate
       onBrandCreated(data.data.slug);
-    } catch {
-      setError('Something went wrong');
+    } catch (err: any) {
+      console.error('Brand creation error:', err);
+      setError(err.message || 'Something went wrong');
     } finally {
       setIsLoading(false);
     }
@@ -74,6 +80,7 @@ export function CreateBrandModal({ onClose, onBrandCreated }: CreateBrandModalPr
             <button
               onClick={onClose}
               className="p-2 rounded-lg hover:bg-[rgb(var(--secondary))] transition-colors"
+              disabled={isLoading}
             >
               <svg className="w-5 h-5 text-[rgb(var(--muted-foreground))]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -104,6 +111,7 @@ export function CreateBrandModal({ onClose, onBrandCreated }: CreateBrandModalPr
                 placeholder="e.g., Acme Corp"
                 className="w-full px-3 py-2 rounded-lg bg-[rgb(var(--input))] text-[rgb(var(--foreground))] border border-[rgb(var(--border))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--os-accent))] placeholder:text-[rgb(var(--muted-foreground))]"
                 autoFocus
+                disabled={isLoading}
               />
               <p className="caption-os text-[rgb(var(--muted-foreground))]">
                 This will be your brand's display name
@@ -115,16 +123,25 @@ export function CreateBrandModal({ onClose, onBrandCreated }: CreateBrandModalPr
               <button
                 type="button"
                 onClick={onClose}
-                className="px-4 py-2 rounded-lg border border-[rgb(var(--border))] text-[rgb(var(--foreground))] hover:bg-[rgb(var(--secondary))] transition-colors"
+                className="px-4 py-2 rounded-lg border border-[rgb(var(--border))] text-[rgb(var(--foreground))] hover:bg-[rgb(var(--secondary))] transition-colors disabled:opacity-50"
+                disabled={isLoading}
               >
                 Cancel
               </button>
               <button
                 type="submit"
-                disabled={isLoading || !brandName.trim()}
+                disabled={isLoading || !brandName.trim() || brandName.trim().length < 2}
                 className="px-4 py-2 rounded-lg bg-gradient-to-br from-[rgb(var(--os-accent))] to-[rgb(var(--os-accent-soft))] text-white hover:opacity-90 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
               >
-                {isLoading ? 'Creating...' : 'Create Brand'}
+                {isLoading ? (
+                  <span className="flex items-center gap-2">
+                    <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
+                    </svg>
+                    Creating...
+                  </span>
+                ) : 'Create Brand'}
               </button>
             </div>
           </form>

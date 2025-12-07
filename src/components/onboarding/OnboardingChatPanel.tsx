@@ -11,7 +11,7 @@ import {
 
 import { cn } from '@/lib/utils';
 import { useOnboarding } from './OnboardingStateManager';
-import { ChatMessage as ChatMessageType } from '@/types/onboarding';
+import { ChatMessage as ChatMessageType, OnboardingStep } from '@/types/onboarding';
 
 interface ChatMessageUI {
   id: string;
@@ -76,28 +76,37 @@ export default function OnboardingChatPanel({
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   
-  // Convert global chat messages to UI format
+  // Replace the entire useEffect for converting chat messages with this:
   useEffect(() => {
     if (chatMessages && chatMessages.length > 0) {
+      // Convert global chat messages to UI format
       const convertedMessages: ChatMessageUI[] = chatMessages.map(msg => {
-        // Check if this is a loading message
-        const isLoading = msg.isLoading || false;
-        
-        // Convert to UI format
-        return {
+        // Convert to UI format with actions if needed
+        const uiMessage: ChatMessageUI = {
           id: msg.id,
           role: msg.role,
           content: msg.content,
           timestamp: new Date(msg.timestamp),
-          isTyping: isLoading,
-          isLoading: isLoading,
+          isTyping: msg.isLoading || false,
+          isLoading: msg.isLoading || false,
         };
-      }).filter(msg => msg.role !== 'system'); // Hide system messages
+        
+        // Only add actions to non-loading assistant messages
+        if (msg.role === 'assistant' && !msg.isLoading && msg.content) {
+          // Parse actions from content or use step-based actions
+          const actions = parseAIResponse(msg.content);
+          if (actions && actions.length > 0) {
+            uiMessage.actions = actions;
+          }
+        }
+        
+        return uiMessage;
+      });
       
       setUiMessages(convertedMessages);
     }
   }, [chatMessages]);
-  
+    
   // Scroll to bottom when messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -227,31 +236,109 @@ export default function OnboardingChatPanel({
     setIsTyping(false);
   };
   
+ 
   const handleAction = async (actionType: string) => {
     console.log('Action triggered:', actionType);
     
-    // Map action types to user messages
-    const actionMessages: Record<string, string> = {
-      'start-description': 'I want to describe my brand',
-      'add-website': 'Add website URL',
-      'upload-files': 'Upload files',
-      'add-social': 'Add social profiles',
-      'upload-documents': 'Upload documents',
-      'skip-evidence': 'Skip for now',
-      'start-analysis': 'Start analysis',
-      'add-more-evidence': 'Add more materials',
-      'show-summary': 'Show Summary',
-      'show-audience': 'Show Audience',
-      'show-tone': 'Show Tone',
-      'show-pillars': 'Show Pillars',
+    // Map action types to user messages AND step updates
+    const actionConfigs: Record<string, { message: string; step?: OnboardingStep; handler?: () => Promise<void> }> = {
+      'start-description': { 
+        message: 'I want to describe my brand',
+        handler: async () => {
+          // Send chat message
+          await handleSendMessage('I want to describe my brand');
+          // After describing, move to evidence collection
+          setTimeout(() => {
+            onStepUpdate('collecting_evidence');
+          }, 1500);
+        }
+      },
+      'add-website': { 
+        message: 'Add website URL',
+        step: 'collecting_evidence'
+      },
+      'upload-files': { 
+        message: 'Upload files',
+        step: 'collecting_evidence'
+      },
+      'add-social': { 
+        message: 'Add social profiles',
+        step: 'collecting_evidence'
+      },
+      'upload-documents': { 
+        message: 'Upload documents',
+        step: 'collecting_evidence'
+      },
+      'skip-evidence': { 
+        message: 'Skip evidence for now',
+        handler: async () => {
+          await handleSendMessage('Skip evidence for now');
+          // Skip to waiting for analysis
+          setTimeout(() => {
+            onStepUpdate('waiting_for_analysis');
+          }, 1000);
+        }
+      },
+      'start-analysis': { 
+        message: 'Start analysis now',
+        handler: async () => {
+          await handleSendMessage('Start analysis now');
+          // Move to analyzing step
+          setTimeout(() => {
+            onStepUpdate('analyzing');
+          }, 1000);
+        }
+      },
+      'add-more-evidence': { 
+        message: 'Add more materials',
+        step: 'collecting_evidence'
+      },
+      'show-summary': { 
+        message: 'Show Summary section',
+        handler: async () => {
+          // This should trigger the right panel to show summary
+          // We'll handle this through the state manager
+          await handleSendMessage('Show me the brand summary');
+        }
+      },
+      'show-audience': { 
+        message: 'Show Audience section',
+        handler: async () => {
+          await handleSendMessage('Show me the target audience');
+        }
+      },
+      'show-tone': { 
+        message: 'Show Tone section',
+        handler: async () => {
+          await handleSendMessage('Show me the brand tone');
+        }
+      },
+      'show-pillars': { 
+        message: 'Show Pillars section',
+        handler: async () => {
+          await handleSendMessage('Show me the content pillars');
+        }
+      },
     };
-    
-    const userMessageContent = actionMessages[actionType] || 'Clicked action';
-    
-    // Send as chat message to trigger AI response
-    await handleSendMessage(userMessageContent);
+
+    const config = actionConfigs[actionType];
+    if (!config) return;
+
+    // Execute handler if provided
+    if (config.handler) {
+      await config.handler();
+    } else {
+      // Just send the message
+      await handleSendMessage(config.message);
+      
+      // Update step if specified
+      if (config.step && config.step !== currentStep) {
+        await onStepUpdate(config.step);
+      }
+    }
   };
-  
+
+  // Also update the handleSendMessage to be more aware of onboarding flow:
   const handleSendMessage = async (customMessage?: string) => {
     const messageToSend = customMessage || inputValue;
     
@@ -264,8 +351,39 @@ export default function OnboardingChatPanel({
     setIsLoading(true);
     
     try {
-      // Send the message using the state manager's streaming function
+      // Send the message using the state manager
       await sendChatMessage(messageToSend);
+      
+      // Check if we should auto-progress based on message content
+      const messageLower = messageToSend.toLowerCase();
+      
+      // Auto-detect evidence mentions
+      if (currentStep === 'intro' && 
+          (messageLower.includes('website') || 
+          messageLower.includes('http') ||
+          messageLower.includes('.com') ||
+          messageLower.includes('social') ||
+          messageLower.includes('document') ||
+          messageLower.includes('pdf') ||
+          messageLower.includes('file'))) {
+        // User mentioned evidence, move to evidence collection
+        setTimeout(async () => {
+          await onStepUpdate('collecting_evidence');
+        }, 1000);
+      }
+      
+      // Auto-detect analysis readiness
+      if (currentStep === 'collecting_evidence' && 
+          (messageLower.includes('analyze') || 
+          messageLower.includes('ready') ||
+          messageLower.includes('go ahead') ||
+          messageLower.includes('proceed'))) {
+        // User wants to analyze, move to analysis
+        setTimeout(async () => {
+          await onStepUpdate('waiting_for_analysis');
+        }, 1000);
+      }
+      
     } catch (error) {
       console.error('Failed to send message:', error);
     } finally {

@@ -10,6 +10,7 @@ export function CreateBrandCard() {
   const router = useRouter();
 
   const handleBrandCreated = (slug: string) => {
+    setIsModalOpen(false);
     router.push(`/workspace/${slug}`);
     router.refresh();
   };
@@ -20,7 +21,7 @@ export function CreateBrandCard() {
         whileHover={{ scale: 1.02 }}
         whileTap={{ scale: 0.98 }}
         onClick={() => setIsModalOpen(true)}
-        className="card-base p-6 border-2 border-dashed border-[rgb(var(--border))] hover:border-[rgb(var(--os-accent))] transition-all duration-200 group"
+        className="card-base p-6 border-2 border-dashed border-[rgb(var(--border))] hover:border-[rgb(var(--os-accent))] transition-all duration-200 group cursor-pointer"
       >
         <div className="flex flex-col items-center justify-center h-full space-y-4">
           <div className="w-12 h-12 rounded-full bg-[rgb(var(--secondary))] flex items-center justify-center group-hover:bg-[rgb(var(--os-accent-soft))] transition-colors duration-200">

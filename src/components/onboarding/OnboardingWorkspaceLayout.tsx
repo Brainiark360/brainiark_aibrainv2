@@ -67,43 +67,7 @@ function OnboardingContent() {
   }
   
   return (
-    <div className="min-h-screen bg-[rgb(var(--background))]">
-      {/* Onboarding Header */}
-      <div className="border-b border-[rgb(var(--border))] bg-[rgb(var(--os-surface))]">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[rgb(var(--os-accent))] to-purple-500 flex items-center justify-center">
-                <Brain className="w-5 h-5 text-white" />
-              </div>
-              <div>
-                <h1 className="h3-os text-[rgb(var(--foreground))]">
-                  Brand Onboarding
-                </h1>
-                <p className="caption-os text-[rgb(var(--muted-foreground))]">
-                  Interactive setup with Brainiark AI
-                </p>
-              </div>
-            </div>
-            
-            <div className="flex items-center gap-4">
-              <div className="flex items-center gap-2 px-3 py-1.5 rounded-lg bg-[rgb(var(--secondary))]">
-                <MessageSquare className="w-4 h-4 text-[rgb(var(--os-accent))]" />
-                <span className="text-sm font-medium text-[rgb(var(--foreground))]">
-                  AI-Guided Setup
-                </span>
-              </div>
-              <div className="hidden md:flex items-center gap-2 px-3 py-1.5 rounded-lg bg-gradient-to-r from-[rgb(var(--os-accent-soft))] to-transparent">
-                <Zap className="w-4 h-4 text-[rgb(var(--os-accent))]" />
-                <span className="text-sm text-[rgb(var(--os-accent))]">
-                  Live Assistant
-                </span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </div>
-      
+    <div className="min-h-screen bg-[rgb(var(--background))]">      
       {/* Main Onboarding Area */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {/* Progress Bar */}
