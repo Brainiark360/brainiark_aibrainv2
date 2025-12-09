@@ -1,3 +1,4 @@
+// /app/api/brands/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 
 import { verifySession } from '@/lib/auth/session';
@@ -6,7 +7,35 @@ import { connectToDatabase } from '@/db/db-optimized';
 import { BrandWorkspace } from '@/models/Workspace';
 import { BrandBrain } from '@/models/BrandBrain';
 
-export async function GET(request: NextRequest) {
+interface BrandListItem {
+  id: string;
+  name: string;
+  slug: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+interface BrandListResponse {
+  success: boolean;
+  data?: BrandListItem[];
+  error?: string;
+}
+
+interface BrandCreateBody {
+  name: string;
+}
+
+interface BrandCreateResponse {
+  success: boolean;
+  data?: {
+    id: string;
+    name: string;
+    slug: string;
+  };
+  error?: string;
+}
+
+export async function GET(_request: NextRequest): Promise<NextResponse<BrandListResponse>> {
   try {
     const session = await verifySession();
     if (!session) {
@@ -18,21 +47,26 @@ export async function GET(request: NextRequest) {
 
     await connectToDatabase();
 
-    const brands = await BrandWorkspace.find({ 
-      ownerUserId: session.userId 
-    }).sort({ createdAt: -1 });
+    const brands = await BrandWorkspace.find({
+      ownerUserId: session.userId,
+    })
+      .sort({ createdAt: -1 })
+      .lean()
+      .exec();
+
+    const data: BrandListItem[] = brands.map((brand) => ({
+      id: String(brand._id),
+      name: brand.name,
+      slug: brand.slug,
+      createdAt: brand.createdAt.toISOString(),
+      updatedAt: brand.updatedAt.toISOString(),
+    }));
 
     return NextResponse.json({
       success: true,
-      data: brands.map(brand => ({
-        id: brand._id,
-        name: brand.name,
-        slug: brand.slug,
-        createdAt: brand.createdAt,
-        updatedAt: brand.updatedAt,
-      })),
+      data,
     });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Get brands error:', error);
     return NextResponse.json(
       { success: false, error: 'Internal server error' },
@@ -41,7 +75,7 @@ export async function GET(request: NextRequest) {
   }
 }
 
-export async function POST(request: NextRequest) {
+export async function POST(request: NextRequest): Promise<NextResponse<BrandCreateResponse>> {
   try {
     const session = await verifySession();
     if (!session) {
@@ -53,14 +87,14 @@ export async function POST(request: NextRequest) {
 
     await connectToDatabase();
 
-    const body = await request.json();
+    const body = (await request.json()) as BrandCreateBody;
     const validation = BrandCreateSchema.safeParse(body);
 
     if (!validation.success) {
       return NextResponse.json(
-        { 
-          success: false, 
-          error: validation.error.errors[0].message 
+        {
+          success: false,
+          error: validation.error.errors[0]?.message ?? 'Invalid request',
         },
         { status: 400 }
       );
@@ -73,13 +107,15 @@ export async function POST(request: NextRequest) {
       .toLowerCase()
       .replace(/[^\w\s]/g, '')
       .replace(/\s+/g, '-');
-    
+
     let slug = baseSlug;
     let counter = 1;
-    
-    while (await BrandWorkspace.findOne({ slug })) {
+
+    // Ensure slug uniqueness
+    // eslint-disable-next-line no-await-in-loop
+    while (await BrandWorkspace.findOne({ slug }).lean().exec()) {
       slug = `${baseSlug}-${counter}`;
-      counter++;
+      counter += 1;
     }
 
     // Create brand workspace
@@ -89,60 +125,66 @@ export async function POST(request: NextRequest) {
       slug,
     });
 
-    // Create associated brand brain with ALL required fields
+    // Create associated BrandBrain as source of truth for onboarding state
     try {
       await BrandBrain.create({
         brandWorkspaceId: brand._id,
-        brandSlug: slug, // Required field
+        brandSlug: slug,
         summary: '',
         audience: '',
         tone: '',
         pillars: [],
-        recommendations: [], // Add this field
+        recommendations: [],
         offers: '',
         competitors: [],
         channels: [],
         evidence: [],
-        status: 'not_started',
+        status: 'not_started', // onboarding status lives here
         isActivated: false,
         onboardingStep: 1,
       });
-    } catch (brainError: any) {
+    } catch (brainError: unknown) {
       console.error('BrandBrain creation error:', brainError);
-      
-      // If BrandBrain creation fails, delete the brand
-      await BrandWorkspace.findByIdAndDelete(brand._id);
-      
-      // Provide specific error message
+
+      await BrandWorkspace.findByIdAndDelete(brand._id).exec();
+
       let errorMessage = 'Failed to create brand configuration';
-      if (brainError.code === 11000) {
+
+      if (
+        typeof brainError === 'object' &&
+        brainError !== null &&
+        'code' in brainError &&
+        (brainError as { code: number }).code === 11000
+      ) {
         errorMessage = 'Brand configuration already exists for this workspace';
-      } else if (brainError.errors) {
-        // Get the first validation error
-        const firstError = Object.values(brainError.errors)[0] as any;
-        errorMessage = firstError.message || errorMessage;
       }
-      
-      throw new Error(errorMessage);
+
+      return NextResponse.json(
+        {
+          success: false,
+          error: errorMessage,
+        },
+        { status: 500 }
+      );
     }
 
     return NextResponse.json({
       success: true,
       data: {
-        id: brand._id,
+        id: String(brand._id),
         name: brand.name,
         slug: brand.slug,
       },
     });
-  } catch (error: any) {
+  } catch (error: unknown) {
     console.error('Create brand error:', error);
-    
-    // More specific error message
-    const errorMessage = error.message || 'Internal server error';
-    
+
+    const errorMessage =
+      error instanceof Error ? error.message : 'Internal server error';
+
     return NextResponse.json(
-      { 
-        success: false, 
+      {
+        success: false,
         error: errorMessage,
       },
       { status: 500 }

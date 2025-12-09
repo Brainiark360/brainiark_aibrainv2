@@ -1,18 +1,9 @@
-// /models/BrandBrain.ts - FIXED VERSION
-import mongoose, { Schema, Document, Model } from "mongoose";
+import { Schema, model, models, Types } from "mongoose";
 
-export type EvidenceType = "website" | "document" | "social" | "manual";
-export type EvidenceStatus = "pending" | "processing" | "complete";
+export interface BrandBrainDocument {
+  _id: Types.ObjectId;
 
-export interface EvidenceItem {
-  type: EvidenceType;
-  value: string;
-  status: EvidenceStatus;
-  analyzedContent?: string;
-}
-
-export interface IBrandBrain extends Document {
-  brandWorkspaceId: mongoose.Types.ObjectId;
+  brandWorkspaceId: Types.ObjectId;
   brandSlug: string;
 
   summary: string;
@@ -22,54 +13,40 @@ export interface IBrandBrain extends Document {
   offers: string;
   competitors: string[];
   channels: string[];
+  recommendations?: string[];
 
-  evidence: EvidenceItem[];
-
-  status: "not_started" | "in_progress" | "ready";
+  status: "not_started" | "in_progress" | "ready" | "failed";
   isActivated: boolean;
   onboardingStep: number;
 
+  analysisMethod?: string;
   lastAnalyzedAt?: Date;
+  analysisStartedAt?: Date;
+  analysisCompletedAt?: Date;
+  analysisDurationMs?: number;
+
+  evidenceCount?: number;
+  evidenceType?: string;
+  gptAnalysisData?: Record<string, unknown>;
+
+  lastError?: string;
+
   createdAt: Date;
   updatedAt: Date;
 }
 
-const EvidenceItemSchema = new Schema<EvidenceItem>(
-  {
-    type: {
-      type: String,
-      enum: ["website", "document", "social", "manual"],
-      required: true,
-    },
-    value: {
-      type: String,
-      required: true,
-    },
-    status: {
-      type: String,
-      enum: ["pending", "processing", "complete"],
-      default: "pending",
-    },
-    analyzedContent: {
-      type: String,
-    },
-  },
-  { _id: false }
-);
-
-const BrandBrainSchema = new Schema<IBrandBrain>(
+const BrandBrainSchema = new Schema<BrandBrainDocument>(
   {
     brandWorkspaceId: {
       type: Schema.Types.ObjectId,
-      ref: "BrandWorkspace",
       required: true,
-      // REMOVED: index: true, // Remove inline index to avoid duplicates
+      index: true,
     },
 
     brandSlug: {
       type: String,
       required: true,
-      // REMOVED: index: true, // Remove inline index to avoid duplicates
+      unique: true,
     },
 
     summary: { type: String, default: "" },
@@ -79,22 +56,15 @@ const BrandBrainSchema = new Schema<IBrandBrain>(
     offers: { type: String, default: "" },
     competitors: { type: [String], default: [] },
     channels: { type: [String], default: [] },
-
-    evidence: {
-      type: [EvidenceItemSchema],
-      default: [],
-    },
+    recommendations: { type: [String], default: [] },
 
     status: {
       type: String,
-      enum: ["not_started", "in_progress", "ready"],
+      enum: ["not_started", "in_progress", "ready", "failed"],
       default: "not_started",
     },
 
-    isActivated: {
-      type: Boolean,
-      default: false,
-    },
+    isActivated: { type: Boolean, default: false },
 
     onboardingStep: {
       type: Number,
@@ -103,24 +73,25 @@ const BrandBrainSchema = new Schema<IBrandBrain>(
       max: 5,
     },
 
-    lastAnalyzedAt: {
-      type: Date,
-    },
+    analysisMethod: String,
+    lastAnalyzedAt: Date,
+    analysisStartedAt: Date,
+    analysisCompletedAt: Date,
+    analysisDurationMs: Number,
+
+    evidenceCount: Number,
+    evidenceType: String,
+    gptAnalysisData: Object,
+
+    lastError: String,
   },
-  {
-    versionKey: false,
-    timestamps: true,
-  }
+  { timestamps: true }
 );
 
-// KEEP ONLY schema-level indexes (remove inline indexes above)
-BrandBrainSchema.index({ brandWorkspaceId: 1 }, { unique: true });
+BrandBrainSchema.index({ brandWorkspaceId: 1 });
 BrandBrainSchema.index({ brandSlug: 1 }, { unique: true });
-
-// Add compound index for common queries
 BrandBrainSchema.index({ brandSlug: 1, status: 1 });
-BrandBrainSchema.index({ brandWorkspaceId: 1, isActivated: 1 });
 
-export const BrandBrain: Model<IBrandBrain> =
-  mongoose.models.BrandBrain ||
-  mongoose.model<IBrandBrain>("BrandBrain", BrandBrainSchema);
+export const BrandBrain =
+  models.BrandBrain ||
+  model<BrandBrainDocument>("BrandBrain", BrandBrainSchema);

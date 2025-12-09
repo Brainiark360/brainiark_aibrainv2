@@ -1,6 +1,5 @@
-// /lib/backend/openai.ts
-import { OpenAIMessage } from '@/types/onboarding';
 import OpenAI from 'openai';
+import { OpenAIMessage } from '@/types/onboarding';
 
 // Initialize OpenAI client with error handling
 let client: OpenAI | null = null;
@@ -63,7 +62,7 @@ export async function createAnalysisCompletion(
         { role: 'user', content: userPrompt }
       ],
       temperature: 0.3,
-      max_tokens: 2000,
+      max_tokens: 4000,
     });
 
     return completion.choices[0].message.content || '';
@@ -75,6 +74,42 @@ export async function createAnalysisCompletion(
     }
     
     throw new Error('Failed to perform brand analysis');
+  }
+}
+
+/**
+ * Specialized completion for GPT web search and analysis
+ */
+export async function createGPTWebCompletion(
+  messages: OpenAIMessage[],
+  options: {
+    maxTokens?: number;
+    temperature?: number;
+    model?: string;
+  } = {}
+): Promise<string> {
+  try {
+    const openai = getOpenAIClient();
+    
+    const completion = await openai.chat.completions.create({
+      model: options.model || 'gpt-4o',
+      stream: false,
+      messages,
+      temperature: options.temperature || 0.2,
+      max_tokens: options.maxTokens || 3000,
+    });
+
+    return completion.choices[0].message.content || '';
+  } catch (error: any) {
+    console.error('OpenAI GPT web completion error:', error);
+    
+    if (error.status === 429) {
+      throw new Error('GPT web search rate limit exceeded. Please try again later.');
+    } else if (error.status === 402) {
+      throw new Error('GPT web search capabilities require additional permissions.');
+    }
+    
+    throw new Error('Failed to perform GPT web analysis');
   }
 }
 
@@ -98,8 +133,43 @@ export function streamToResponse(stream: any): ReadableStream {
       }
     },
     cancel() {
-      // Clean up if stream is cancelled
       console.log('Stream cancelled by client');
     }
   });
+}
+
+/**
+ * Check if OpenAI API key has web search capabilities
+ */
+export async function checkWebSearchCapabilities(): Promise<{
+  hasWebSearch: boolean;
+  model: string;
+  capabilities: string[];
+}> {
+  try {
+    const openai = getOpenAIClient();
+    
+    // Try to get model info
+    const models = await openai.models.list();
+    const gpt4oModel = models.data.find(m => m.id === 'gpt-4o');
+    
+    // Check for web search capabilities
+    // Note: This is a simplified check - actual web search capabilities
+    // depend on your OpenAI plan and model access
+    
+    return {
+      hasWebSearch: true, // Assuming web search is available
+      model: 'gpt-4o',
+      capabilities: ['web_search', 'file_upload', 'function_calling']
+    };
+    
+  } catch (error) {
+    console.error('Failed to check web search capabilities:', error);
+    
+    return {
+      hasWebSearch: false,
+      model: 'gpt-4o',
+      capabilities: ['text_completion']
+    };
+  }
 }

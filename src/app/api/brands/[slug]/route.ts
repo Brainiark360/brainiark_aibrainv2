@@ -1,13 +1,30 @@
+// /app/api/brands/[slug]/route.ts
 import { NextRequest, NextResponse } from 'next/server';
 import { verifySession } from '@/lib/auth/session';
-import { connectToDatabase } from '@/db/db';
+import { connectToDatabase } from '@/db/db-optimized';
 import { BrandWorkspace } from '@/models/Workspace';
 
-interface Params {
+interface RouteParams {
   params: Promise<{ slug: string }>;
 }
 
-export async function GET(request: NextRequest, { params }: Params) {
+interface BrandDetailResponse {
+  success: boolean;
+  data?: {
+    id: string;
+    name: string;
+    slug: string;
+    aiThreadId?: string | null;
+    createdAt: string;
+    updatedAt: string;
+  };
+  error?: string;
+}
+
+export async function GET(
+  _request: NextRequest,
+  { params }: RouteParams
+): Promise<NextResponse<BrandDetailResponse>> {
   try {
     const session = await verifySession();
     if (!session) {
@@ -20,10 +37,12 @@ export async function GET(request: NextRequest, { params }: Params) {
     await connectToDatabase();
     const { slug } = await params;
 
-    const brand = await BrandWorkspace.findOne({ 
+    const brand = await BrandWorkspace.findOne({
       slug,
-      ownerUserId: session.userId 
-    });
+      ownerUserId: session.userId,
+    })
+      .lean()
+      .exec();
 
     if (!brand) {
       return NextResponse.json(
@@ -35,15 +54,15 @@ export async function GET(request: NextRequest, { params }: Params) {
     return NextResponse.json({
       success: true,
       data: {
-        id: brand._id,
+        id: String(brand._id),
         name: brand.name,
         slug: brand.slug,
-        aiThreadId: brand.aiThreadId,
-        createdAt: brand.createdAt,
-        updatedAt: brand.updatedAt,
+        aiThreadId: brand.aiThreadId ?? null,
+        createdAt: brand.createdAt.toISOString(),
+        updatedAt: brand.updatedAt.toISOString(),
       },
     });
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Get brand error:', error);
     return NextResponse.json(
       { success: false, error: 'Internal server error' },

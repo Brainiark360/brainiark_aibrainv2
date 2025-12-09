@@ -1,800 +1,754 @@
-// /components/onboarding/OnboardingStateManager.tsx
 'use client';
 
-import React, { createContext, useContext, useReducer, useEffect, useCallback, ReactNode } from 'react';
-import { useParams } from 'next/navigation';
-import { 
-  OnboardingStep, 
-  BrandBrainSection, 
-  FrontendEvidenceItem, 
-  FrontendBrandBrainData, 
-  OnboardingEvent, 
-  OnboardingState, 
-  OnboardingContextType,
-  EvidenceType,
-  ChatMessage,
-  ApiResponse
-} from '@/types/onboarding';
+import React, {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useRef,
+  useState,
+} from 'react';
+
+import type { OnboardingStep } from '@/types/onboarding';
+
+//
+// -----------------------------
+// Local Types (frontend DTOs)
+// -----------------------------
+//
+
+export type EvidenceMappedType = 'text' | 'image' | 'url' | 'file' | 'search';
+
+export interface EvidenceItem {
+  id: string;
+  content: string;
+  type: EvidenceMappedType;
+  source: string;
+  createdAt: string;
+  metadata: {
+    originalValue: string;
+    status: string;
+    analyzedContent?: string;
+    analysisSummary?: string;
+    searchType?: string;
+  };
+}
+
+export interface BrandBrainData {
+  _id?: string;
+  brandWorkspaceId?: string;
+  brandSlug?: string;
+
+  summary: string;
+  audience: string;
+  tone: string;
+  pillars: string[];
+  offers: string;
+  competitors: string[];
+  channels: string[];
+  recommendations?: string[];
+
+  status: 'not_started' | 'in_progress' | 'ready' | 'failed' | string;
+  isActivated: boolean;
+  onboardingStep: number;
+
+  lastAnalyzedAt?: string;
+  analysisCompletedAt?: string;
+  createdAt?: string;
+  updatedAt?: string;
+
+  // Optional GPT metadata if present
+  gptAnalysisData?: {
+    searchPerformed?: boolean;
+    sourcesUsed?: string[];
+    resultsCount?: number;
+    crawledCount?: number;
+    enhancement?: boolean;
+    analysisDurationMs?: number;
+  };
+}
+
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant' | 'system';
+  content: string;
+  createdAt: number;
+}
+
+interface EvidenceListResponse {
+  success: boolean;
+  data?: EvidenceItem[];
+  error?: string;
+}
+
+interface EvidenceSingleResponse {
+  success: boolean;
+  data?: EvidenceItem;
+  error?: string;
+}
+
+interface BrainGetResponse {
+  success: boolean;
+  data?: BrandBrainData | null;
+  error?: string;
+}
+
+interface BrainPatchResponse {
+  success: boolean;
+  data?: BrandBrainData;
+  error?: string;
+}
+
+interface BrainCompleteResponse {
+  success: boolean;
+  data?: {
+    brain: BrandBrainData;
+    workspace: unknown;
+    completedAt: string;
+  };
+  error?: string;
+}
+
+interface AnalyzeResponse {
+  success: boolean;
+  data?: {
+    summary: string;
+    audience: string;
+    tone: string;
+    pillars: string[];
+    offers: string;
+    competitors: string[];
+    channels: string[];
+    recommendations?: string[];
+  };
+  error?: string;
+  code?: string;
+}
+
+interface OnboardingStateResponse {
+  success: boolean;
+  data?: {
+    step: OnboardingStep;
+    status: string;
+    onboardingStep: number;
+    isActivated: boolean;
+    updatedAt: string;
+  };
+  error?: string;
+}
+
+//
+// -----------------------------
+// Onboarding State Interface
+// -----------------------------
+//
+
+export interface OnboardingState {
+  step: OnboardingStep;
+  evidence: EvidenceItem[];
+  brandBrain: BrandBrainData | null;
+
+  messages: ChatMessage[];
+
+  // Global UI indicators
+  isThinking: boolean; // GPT streaming
+  isProcessing: boolean; // system operations
+  analysisProgress: string[]; // e.g. ["Searching...", "Crawling..."]
+
+  // Actions
+  sendChatMessage: (text: string) => Promise<void>;
+  addEvidence: (type: string, value: string) => Promise<void>;
+  removeEvidence: (id: string) => Promise<void>;
+  startAnalysis: (options?: { brandNameOnly?: boolean }) => Promise<void>;
+  resetAnalysis: () => Promise<void>;
+  updateStep: (step: OnboardingStep) => Promise<void>;
+  updateBrandBrain: (updates: Partial<BrandBrainData>) => Promise<void>;
+  completeOnboarding: () => Promise<void>;
+}
+
+//
+// -----------------------------
+// Context
+// -----------------------------
+//
+
+const OnboardingContext = createContext<OnboardingState | null>(null);
+
+export function useOnboarding(): OnboardingState {
+  const ctx = useContext(OnboardingContext);
+  if (!ctx) {
+    throw new Error('useOnboarding must be used inside <OnboardingStateManager>');
+  }
+  return ctx;
+}
+
+//
+// -----------------------------
+// Provider Component
+// -----------------------------
+//
+
+const ANALYSIS_STEPS: string[] = [
+  '🔵 Searching for brand information…',
+  '🔵 Crawling website & public sources…',
+  '🔵 Extracting messaging, tone, and positioning…',
+  '🔵 Building your Brand Brain…',
+];
 
 interface OnboardingProviderProps {
-  children: ReactNode;
+  slug: string;
+  initialStep: OnboardingStep;
+  initialEvidence: EvidenceItem[];
+  initialBrain: BrandBrainData | null;
+  children: React.ReactNode;
 }
 
-// Initial state
-const initialState: OnboardingState = {
-  step: 'intro',
-  brandBrain: null,
-  evidence: [],
-  activeSection: null,
-  isLoading: false,
-  error: null,
-  chatMessages: [], // <-- Make sure this exists
-};
+export function OnboardingStateManager({
+  slug,
+  initialStep,
+  initialEvidence,
+  initialBrain,
+  children,
+}: OnboardingProviderProps) {
+  const [step, setStep] = useState<OnboardingStep>(initialStep);
+  const [evidence, setEvidence] = useState<EvidenceItem[]>(initialEvidence);
+  const [brandBrain, setBrandBrain] = useState<BrandBrainData | null>(initialBrain);
 
-// Create context
-const OnboardingContext = createContext<OnboardingContextType | undefined>(undefined);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [isThinking, setThinking] = useState(false);
+  const [isProcessing, setProcessing] = useState(false);
+  const [analysisProgress, setAnalysisProgress] = useState<string[]>([]);
 
-// Helper function to map evidence from backend to frontend format
-function mapEvidenceToFrontend(backendEvidence: any[]): FrontendEvidenceItem[] {
-  if (!backendEvidence || !Array.isArray(backendEvidence)) {
-    return [];
-  }
-  
-  return backendEvidence.map((item) => ({
-    id: item._id || item.id || `evidence-${Date.now()}-${Math.random()}`,
-    content: item.analyzedContent || item.value || '',
-    type: mapEvidenceType(item.type),
-    source: item.type || 'manual',
-    createdAt: item.createdAt || new Date().toISOString(),
-    metadata: {
-      originalValue: item.value,
-      status: item.status || 'pending',
-      analyzedContent: item.analyzedContent,
-    }
-  }));
-}
+  const abortRef = useRef<AbortController | null>(null);
 
-// Helper function to map evidence types
-function mapEvidenceType(type: string): 'text' | 'image' | 'url' | 'file' {
-  switch (type) {
-    case 'website':
-      return 'url';
-    case 'document':
-      return 'file';
-    case 'social':
-      return 'text';
-    case 'manual':
-      return 'text';
-    default:
-      return 'text';
-  }
-}
+  //
+  // -----------------------------
+  // Utility: message helpers
+  // -----------------------------
+  //
 
-// Helper function to map brand brain from backend to frontend format
-function mapBrandBrainToFrontend(backendBrain: any): FrontendBrandBrainData | null {
-  if (!backendBrain) return null;
-  
-  return {
-    _id: backendBrain._id?.toString() || backendBrain.id,
-    summary: backendBrain.summary || '',
-    audience: backendBrain.audience || '',
-    tone: backendBrain.tone || '',
-    pillars: backendBrain.pillars || [],
-    recommendations: backendBrain.recommendations || [],
-    offers: backendBrain.offers || '',
-    competitors: backendBrain.competitors || [],
-    channels: backendBrain.channels || [],
-    status: backendBrain.status || 'not_started',
-    isActivated: backendBrain.isActivated || false,
-    onboardingStep: backendBrain.onboardingStep || 1,
-    updatedAt: backendBrain.updatedAt || new Date().toISOString(),
-    lastAnalyzedAt: backendBrain.lastAnalyzedAt,
-  };
-}
-
-// Reducer function
-function onboardingReducer(state: OnboardingState, action: OnboardingEvent): OnboardingState {
-  switch (action.type) {
-    case 'STEP_CHANGED':
-      return {
-        ...state,
-        step: action.payload.step,
-        activeSection: action.payload.step === 'reviewing_brand_brain' ? 'summary' : null,
-      };
-    
-    case 'SHOW_SECTION':
-      return {
-        ...state,
-        activeSection: action.payload.section,
-      };
-    
-    case 'SECTION_UPDATED':
-      return {
-        ...state,
-        isLoading: false,
-      };
-    
-    case 'ADD_EVIDENCE':
-      return {
-        ...state,
-        step: 'collecting_evidence',
-      };
-    
-    case 'START_ANALYSIS':
-      return {
-        ...state,
-        step: 'analyzing',
-        activeSection: null,
-      };
-    
-    case 'FINISH_REVIEW':
-      return {
-        ...state,
-        step: 'complete',
-        activeSection: null,
-      };
-    
-    case 'EVIDENCE_UPDATED':
-      return {
-        ...state,
-        evidence: action.payload.evidence,
-      };
-    
-    case 'BRAND_BRAIN_UPDATED':
-      return {
-        ...state,
-        brandBrain: action.payload.brandBrain,
-      };
-    
-    case 'LOADING':
-      return {
-        ...state,
-        isLoading: action.payload.isLoading,
-      };
-    
-    case 'ERROR':
-      return {
-        ...state,
-        error: action.payload.error,
-      };
-    
-    case 'CHAT_MESSAGE_ADDED':
-      const newMessage = action.payload.message;
-      
-      // If this is an AI message with an ID we've seen before, replace it
-      if (newMessage.role === 'assistant' && newMessage.id) {
-        const existingIndex = state.chatMessages?.findIndex(m => m.id === newMessage.id) ?? -1;
-        
-        if (existingIndex >= 0 && state.chatMessages) {
-          // Replace existing message
-          const updatedMessages = [...state.chatMessages];
-          updatedMessages[existingIndex] = newMessage;
-          return {
-            ...state,
-            chatMessages: updatedMessages,
-          };
-        }
-      }
-      
-      // Otherwise, add as new message
-      return {
-        ...state,
-        chatMessages: [...(state.chatMessages || []), newMessage],
-      };
-    
-    case 'COMPLETE_ONBOARDING':
-      return {
-        ...state,
-        step: 'complete',
-      };
-    
-    default:
-      return state;
-  }
-}
-
-export function OnboardingStateManager({ children }: OnboardingProviderProps) {
-  const params = useParams();
-  const slug = params.slug as string;
-  
-  const [state, dispatch] = useReducer(onboardingReducer, initialState);
-  
-  // Helper function for API calls
-  const apiCall = useCallback(async <T,>(
-    endpoint: string,
-    options?: RequestInit
-  ): Promise<ApiResponse<T>> => {
-    try {
-      const response = await fetch(endpoint, options);
-      
-      if (!response.ok) {
-        throw new Error(`HTTP error! status: ${response.status}`);
-      }
-      
-      const data = await response.json();
-      
-      if (!data.success) {
-        throw new Error(data.error || 'API request failed');
-      }
-      
-      return data;
-    } catch (error) {
-      console.error(`API call error for ${endpoint}:`, error);
-      throw error;
-    }
+  const pushSystemMessage = useCallback((content: string) => {
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `sys-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        role: 'system',
+        content,
+        createdAt: Date.now(),
+      },
+    ]);
   }, []);
-  
-  // Fetch onboarding state on mount
-  const fetchOnboardingState = useCallback(async () => {
-    try {
-      dispatch({ type: 'LOADING', payload: { isLoading: true } });
-      
-      const response = await apiCall<{ step: OnboardingStep }>(
-        `/api/brands/${slug}/onboarding/state`
-      );
-      
-      if (response.success && response.data) {
-        dispatch({ 
-          type: 'STEP_CHANGED', 
-          payload: { step: response.data.step || 'intro' } 
-        });
-      }
-    } catch (error) {
-      console.error('Error fetching onboarding state:', error);
-      dispatch({ 
-        type: 'ERROR', 
-        payload: { error: error instanceof Error ? error.message : 'Failed to fetch onboarding state' } 
-      });
-    } finally {
-      dispatch({ type: 'LOADING', payload: { isLoading: false } });
-    }
-  }, [slug, apiCall]);
-  
-  // Update onboarding step
-  const updateStep = useCallback(async (step: OnboardingStep) => {
-    try {
-      dispatch({ type: 'LOADING', payload: { isLoading: true } });
-      
-      const response = await apiCall<{ step: OnboardingStep }>(
-        `/api/brands/${slug}/onboarding/state`,
-        {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ step }),
-        }
-      );
-      
-      if (response.success) {
-        dispatch({ type: 'STEP_CHANGED', payload: { step } });
-      }
-    } catch (error) {
-      console.error('Error updating step:', error);
-      dispatch({ 
-        type: 'ERROR', 
-        payload: { error: error instanceof Error ? error.message : 'Failed to update step' } 
-      });
-      throw error;
-    } finally {
-      dispatch({ type: 'LOADING', payload: { isLoading: false } });
-    }
-  }, [slug, apiCall]);
-  
-  // Fetch brand brain data
-  const fetchBrandBrain = useCallback(async (): Promise<FrontendBrandBrainData | null> => {
-    try {
-      dispatch({ type: 'LOADING', payload: { isLoading: true } });
-      
-      const response = await apiCall<FrontendBrandBrainData>(
-        `/api/brands/${slug}/onboarding/brain`
-      );
-      
-      let brandBrain: FrontendBrandBrainData | null = null;
-      
-      if (response.success && response.data) {
-        brandBrain = mapBrandBrainToFrontend(response.data);
-      }
-      
-      dispatch({ 
-        type: 'BRAND_BRAIN_UPDATED', 
-        payload: { brandBrain } 
-      });
-      
-      return brandBrain;
-    } catch (error) {
-      console.error('Error fetching brand brain:', error);
-      
-      // Check if it's a 404 (not created yet)
-      if (error instanceof Error && error.message.includes('404')) {
-        console.log('Brand brain not created yet, returning null');
-        return null;
-      }
-      
-      dispatch({ 
-        type: 'ERROR', 
-        payload: { error: error instanceof Error ? error.message : 'Failed to fetch brand brain' } 
-      });
-      throw error;
-    } finally {
-      dispatch({ type: 'LOADING', payload: { isLoading: false } });
-    }
-  }, [slug, apiCall]);
-  
-  // Update brand brain
-  const updateBrandBrain = useCallback(async (updates: Partial<FrontendBrandBrainData>) => {
-    try {
-      dispatch({ type: 'LOADING', payload: { isLoading: true } });
-      
-      const response = await apiCall<FrontendBrandBrainData>(
-        `/api/brands/${slug}/onboarding/brain`,
-        {
-          method: 'PATCH',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(updates),
-        }
-      );
-      
-      if (response.success && response.data) {
-        const brandBrain = mapBrandBrainToFrontend(response.data);
-        dispatch({ 
-          type: 'BRAND_BRAIN_UPDATED', 
-          payload: { brandBrain } 
-        });
-      }
-    } catch (error) {
-      console.error('Error updating brand brain:', error);
-      dispatch({ 
-        type: 'ERROR', 
-        payload: { error: error instanceof Error ? error.message : 'Failed to update brand brain' } 
-      });
-      throw error;
-    } finally {
-      dispatch({ type: 'LOADING', payload: { isLoading: false } });
-    }
-  }, [slug, apiCall]);
-  
-  // Start analysis
-  const startAnalysis = useCallback(async () => {
-    try {
-      dispatch({ type: 'LOADING', payload: { isLoading: true } });
-      
-      const response = await apiCall(
-        `/api/brands/${slug}/onboarding/analyze`,
-        {
-          method: 'POST',
-        }
-      );
-      
-      if (response.success) {
-        // Update step to analyzing
-        dispatch({ type: 'START_ANALYSIS' });
-        
-        // Poll for analysis completion
-        const pollAnalysisStatus = async (): Promise<void> => {
-          try {
-            const statusResponse = await apiCall<any>(
-              `/api/brands/${slug}/onboarding/analyze`
-            );
-            
-            if (statusResponse.success && statusResponse.data?.isReady) {
-              // Analysis complete, fetch the brand brain
-              await fetchBrandBrain();
-              // Update step to reviewing
-              await updateStep('reviewing_brand_brain');
-            } else {
-              // Not ready yet, poll again after delay
-              setTimeout(pollAnalysisStatus, 2000);
-            }
-          } catch (pollError) {
-            console.error('Error polling analysis status:', pollError);
-            // On error, assume analysis failed and go back to collecting evidence
-            await updateStep('collecting_evidence');
-          }
-        };
-        
-        // Start polling
-        setTimeout(pollAnalysisStatus, 3000);
-      }
-    } catch (error) {
-      console.error('Error starting analysis:', error);
-      dispatch({ 
-        type: 'ERROR', 
-        payload: { error: error instanceof Error ? error.message : 'Failed to start analysis' } 
-      });
-      throw error;
-    } finally {
-      dispatch({ type: 'LOADING', payload: { isLoading: false } });
-    }
-  }, [slug, apiCall, fetchBrandBrain, updateStep]);
-  
-  // Refresh evidence
-  const refreshEvidence = useCallback(async (): Promise<FrontendEvidenceItem[]> => {
-    try {
-      dispatch({ type: 'LOADING', payload: { isLoading: true } });
-      
-      const response = await apiCall<any[]>(
-        `/api/brands/${slug}/onboarding/evidence`
-      );
-      
-      let evidence: FrontendEvidenceItem[] = [];
-      
-      if (response.success && response.data) {
-        evidence = mapEvidenceToFrontend(response.data);
-      }
-      
-      dispatch({ 
-        type: 'EVIDENCE_UPDATED', 
-        payload: { evidence } 
-      });
-      
-      return evidence;
-    } catch (error) {
-      console.error('Error refreshing evidence:', error);
-      dispatch({ 
-        type: 'ERROR', 
-        payload: { error: error instanceof Error ? error.message : 'Failed to refresh evidence' } 
-      });
-      throw error;
-    } finally {
-      dispatch({ type: 'LOADING', payload: { isLoading: false } });
-    }
-  }, [slug, apiCall]);
-  
-  // Add evidence
-  const addEvidence = useCallback(async (type: EvidenceType, value: string): Promise<FrontendEvidenceItem> => {
-    try {
-      dispatch({ type: 'LOADING', payload: { isLoading: true } });
-      
-      const response = await apiCall<any>(
-        `/api/brands/${slug}/onboarding/evidence`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ type, value }),
-        }
-      );
-      
-      if (response.success && response.data) {
-        const newEvidence = mapEvidenceToFrontend([response.data])[0];
-        
-        // Refresh the full evidence list
-        await refreshEvidence();
-        
-        // Update step to collecting evidence if not already
-        if (state.step !== 'collecting_evidence') {
-          dispatch({ type: 'ADD_EVIDENCE' });
-        }
-        
-        return newEvidence;
-      }
-      
-      throw new Error('Failed to add evidence: No data returned');
-    } catch (error) {
-      console.error('Error adding evidence:', error);
-      dispatch({ 
-        type: 'ERROR', 
-        payload: { error: error instanceof Error ? error.message : 'Failed to add evidence' } 
-      });
-      throw error;
-    } finally {
-      dispatch({ type: 'LOADING', payload: { isLoading: false } });
-    }
-  }, [slug, apiCall, refreshEvidence, state.step]);
-  
-  // Delete evidence
-  const deleteEvidence = useCallback(async (id: string) => {
-    try {
-      dispatch({ type: 'LOADING', payload: { isLoading: true } });
-      
-      const response = await apiCall(
-        `/api/brands/${slug}/onboarding/evidence?id=${id}`,
-        { method: 'DELETE' }
-      );
-      
-      if (response.success) {
-        // Refresh the evidence list
-        await refreshEvidence();
-      }
-    } catch (error) {
-      console.error('Error deleting evidence:', error);
-      dispatch({ 
-        type: 'ERROR', 
-        payload: { error: error instanceof Error ? error.message : 'Failed to delete evidence' } 
-      });
-      throw error;
-    } finally {
-      dispatch({ type: 'LOADING', payload: { isLoading: false } });
-    }
-  }, [slug, apiCall, refreshEvidence]);
-  
-  // Complete onboarding
-  const completeOnboarding = useCallback(async () => {
-    try {
-      dispatch({ type: 'LOADING', payload: { isLoading: true } });
-      
-      const response = await apiCall(
-        `/api/brands/${slug}/onboarding/brain`,
-        { method: 'POST' }
-      );
-      
-      if (response.success) {
-        dispatch({ type: 'COMPLETE_ONBOARDING' });
-      }
-    } catch (error) {
-      console.error('Error completing onboarding:', error);
-      dispatch({ 
-        type: 'ERROR', 
-        payload: { error: error instanceof Error ? error.message : 'Failed to complete onboarding' } 
-      });
-      throw error;
-    } finally {
-      dispatch({ type: 'LOADING', payload: { isLoading: false } });
-    }
-  }, [slug, apiCall]);
-  
- // In /components/onboarding/OnboardingStateManager.tsx
-  const sendChatMessage = useCallback(async (message: string) => {
-    try {
-      // Add user message
-      const userMessage: ChatMessage = {
-        id: `user-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+
+  const pushUserMessage = useCallback((content: string) => {
+    setMessages((prev) => [
+      ...prev,
+      {
+        id: `usr-${Date.now()}-${Math.random().toString(16).slice(2)}`,
         role: 'user',
-        content: message,
-        timestamp: new Date(),
-      };
+        content,
+        createdAt: Date.now(),
+      },
+    ]);
+  }, []);
 
-      dispatch({ type: 'CHAT_MESSAGE_ADDED', payload: { message: userMessage } });
+  //
+  // -----------------------------
+  // Helper: refresh BrandBrain from API
+  // -----------------------------
+  //
 
-      // Add AI loading message
-      const aiLoadingMessage: ChatMessage = {
-        id: `ai-loading-${Date.now()}`,
-        role: 'assistant',
-        content: '',
-        timestamp: new Date(),
-        isLoading: true,
-      };
-
-      dispatch({ type: 'CHAT_MESSAGE_ADDED', payload: { message: aiLoadingMessage } });
-
-      // Send to backend
-      const response = await fetch(`/api/brands/${slug}/onboarding/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ 
-          message, 
-          step: state.step,
-          context: {
-            brandBrain: state.brandBrain,
-            evidence: state.evidence,
-            activeSection: state.activeSection,
-            previousMessages: state.chatMessages?.slice(-5) || [], // Send last 5 messages for context
-          }
-        }),
+  const refreshBrandBrain = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/brands/${slug}/onboarding/brain`, {
+        method: 'GET',
       });
 
-      if (!response.ok) throw new Error(`Chat failed: ${response.statusText}`);
+      const data = (await res.json()) as BrainGetResponse;
 
-      // Process streaming response
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error('No response body');
+      if (!res.ok || !data.success) {
+        if (data.error) {
+          pushSystemMessage(`⚠️ Failed to load Brand Brain: ${data.error}`);
+        }
+        return;
+      }
 
-      const decoder = new TextDecoder();
-      let accumulatedContent = '';
-      const aiMessageId = `ai-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      if (data.data) {
+        setBrandBrain(data.data);
+      }
+    } catch (error) {
+      console.error('refreshBrandBrain error:', error);
+      pushSystemMessage('⚠️ Could not refresh Brand Brain.');
+    }
+  }, [slug, pushSystemMessage]);
 
-      // Function to update AI message
-      const updateAIMessage = (content: string, isLoading = false) => {
-        const updatedMessage: ChatMessage = {
-          id: aiMessageId,
-          role: 'assistant',
-          content,
-          timestamp: new Date(),
-          isLoading,
-        };
-        
-        dispatch({ 
-          type: 'CHAT_MESSAGE_ADDED', 
-          payload: { message: updatedMessage } 
-        });
-      };
+  //
+  // -----------------------------
+  // 1. SEND CHAT MESSAGE (streaming)
+  // -----------------------------
+  //
+
+  const sendChatMessage = useCallback(
+    async (text: string) => {
+      const trimmed = text.trim();
+      if (!trimmed) return;
+
+      pushUserMessage(trimmed);
+      setThinking(true);
+
+      abortRef.current?.abort();
+      abortRef.current = new AbortController();
 
       try {
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
+        const res = await fetch(`/api/brands/${slug}/onboarding/chat`, {
+          method: 'POST',
+          body: JSON.stringify({
+            message: trimmed,
+            step,
+          }),
+          signal: abortRef.current.signal,
+        });
 
-          const chunk = decoder.decode(value, { stream: true });
-          accumulatedContent += chunk;
-          updateAIMessage(accumulatedContent, false);
-        }
-
-        // Final update
-        updateAIMessage(accumulatedContent.trim(), false);
-
-        // ========== CRITICAL: AUTO-PROGRESS ONBOARDING BASED ON AI RESPONSE ==========
-        // Analyze AI response to determine if we should progress onboarding
-        const aiResponse = accumulatedContent.toLowerCase();
-        
-        // Check for evidence collection triggers
-        if (state.step === 'intro' && 
-            (aiResponse.includes('website') || 
-            aiResponse.includes('social') || 
-            aiResponse.includes('document') ||
-            aiResponse.includes('evidence') ||
-            aiResponse.includes('collect'))) {
-          // Move to evidence collection step
-          await updateStep('collecting_evidence');
-        }
-        
-        // Check for analysis triggers
-        if (state.step === 'collecting_evidence' && 
-            state.evidence.length >= 1 && // At least some evidence
-            (aiResponse.includes('analyze') || 
-            aiResponse.includes('brand brain') ||
-            aiResponse.includes('start analysis') ||
-            aiResponse.includes('ready to analyze'))) {
-          // Move to analysis step
-          await updateStep('waiting_for_analysis');
-          
-          // Auto-start analysis after a brief delay
-          setTimeout(async () => {
-            await startAnalysis();
-          }, 1000);
-        }
-        
-        // Check for brand brain review triggers
-        if (state.step === 'analyzing' && 
-            aiResponse.includes('review') &&
-            aiResponse.includes('brand brain')) {
-          // Move to review step
-          await updateStep('reviewing_brand_brain');
-        }
-        
-        // Check for completion triggers
-        if (state.step === 'reviewing_brand_brain' && 
-            (aiResponse.includes('complete') || 
-            aiResponse.includes('finish') ||
-            aiResponse.includes('done'))) {
-          // Complete onboarding
-          await completeOnboarding();
-        }
-
-      } catch (streamError) {
-        console.error('Stream error:', streamError);
-        updateAIMessage('Sorry, I encountered an error. Please try again.', false);
-        throw streamError;
-      } finally {
-        reader.releaseLock();
-      }
-
-    } catch (error) {
-      console.error('Chat error:', error);
-      
-      const errorMessage: ChatMessage = {
-        id: `error-${Date.now()}`,
-        role: 'assistant',
-        content: 'Sorry, I had trouble processing your message. Please try again.',
-        timestamp: new Date(),
-        isLoading: false,
-      };
-      
-      dispatch({ type: 'CHAT_MESSAGE_ADDED', payload: { message: errorMessage } });
-      
-      throw error;
-    }
-  }, [slug, state.step, state.brandBrain, state.evidence, state.activeSection, state.chatMessages, dispatch, updateStep, startAnalysis, completeOnboarding]);
-    
-// Event dispatcher with side effects
-  const handleDispatch = useCallback(async (event: OnboardingEvent) => {
-    try {
-      switch (event.type) {
-        case 'ADD_EVIDENCE':
-          dispatch(event);
-          await updateStep('collecting_evidence');
-          break;
-          
-        case 'START_ANALYSIS':
-          await startAnalysis();
-          break;
-          
-        case 'SHOW_SECTION':
-          dispatch(event);
-          break;
-          
-        case 'REFINE_SECTION':
-          if (event.payload) {
-            // Call refinement endpoint
-            const response = await fetch(`/api/brands/${slug}/brain/refine`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({
-                section: event.payload.section,
-                content: event.payload.content,
-              }),
-            });
-            
-            if (response.ok) {
-              await fetchBrandBrain();
-              dispatch({ type: 'SECTION_UPDATED' });
-            }
+        //
+        // -----------------------------
+        // CASE 1: Error JSON from backend
+        // -----------------------------
+        //
+        if (!res.ok) {
+          let errorText = 'AI failed to respond.';
+          try {
+            const json = await res.json();
+            errorText = json.error ?? errorText;
+          } catch (_) {
+            errorText = `HTTP ${res.status}`;
           }
-          break;
-          
-        case 'FINISH_REVIEW':
-          await completeOnboarding();
-          break;
-          
-        default:
-          dispatch(event);
-      }
-    } catch (error) {
-      console.error('Error handling event:', error);
-      dispatch({ 
-        type: 'ERROR', 
-        payload: { error: error instanceof Error ? error.message : 'Error handling event' } 
-      });
-    }
-  }, [slug, updateStep, startAnalysis, fetchBrandBrain, completeOnboarding]);
-  
-  // Initialize - fetch initial state
-  useEffect(() => {
-    if (slug) {
-      const init = async () => {
-        try {
-          dispatch({ type: 'LOADING', payload: { isLoading: true } });
-          
-          // Fetch state, evidence, and brand brain in parallel
-          await Promise.allSettled([
-            fetchOnboardingState(),
-            refreshEvidence(),
-            fetchBrandBrain(),
-          ]);
-        } catch (error) {
-          console.error('Initialization error:', error);
-        } finally {
-          dispatch({ type: 'LOADING', payload: { isLoading: false } });
+          pushSystemMessage(`⚠️ ${errorText}`);
+          return;
         }
+
+        //
+        // -----------------------------
+        // CASE 2: No streaming body (fallback text)
+        // -----------------------------
+        //
+        if (!res.body || !res.body.getReader) {
+          const fallback = await res.text();
+
+          const assistantId = `ai-${Date.now()}-${Math.random()
+            .toString(16)
+            .slice(2)}`;
+
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: assistantId,
+              role: 'assistant',
+              content: fallback || '(no response)',
+              createdAt: Date.now(),
+            },
+          ]);
+
+          return;
+        }
+
+        //
+        // -----------------------------
+        // CASE 3: TRUE STREAM (OpenAI)
+        // -----------------------------
+        //
+        const reader = res.body.getReader?.();
+        if (!reader) {
+          // Body exists but is not a stream → fallback text
+          const fallback = await res.text();
+
+          const assistantId = `ai-${Date.now()}-${Math.random()
+            .toString(16)
+            .slice(2)}`;
+
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: assistantId,
+              role: 'assistant',
+              content: fallback || '(no response)',
+              createdAt: Date.now(),
+            },
+          ]);
+
+          return;
+        }
+
+        const decoder = new TextDecoder();
+        const assistantId = `ai-${Date.now()}-${Math.random()
+          .toString(16)
+          .slice(2)}`;
+
+        // create blank assistant message
+        setMessages((prev) => [
+          ...prev,
+          {
+            id: assistantId,
+            role: 'assistant',
+            content: '',
+            createdAt: Date.now(),
+          },
+        ]);
+
+        // read stream chunks safely
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+          if (value) {
+            const textPart = decoder.decode(value, { stream: true });
+            setMessages((prev) =>
+              prev.map((msg) =>
+                msg.id === assistantId
+                  ? { ...msg, content: msg.content + textPart }
+                  : msg
+              )
+            );
+          }
+        }
+      } catch (err) {
+        console.error('Chat stream error', err);
+        pushSystemMessage('⚠️ AI connection interrupted. Please retry.');
+      } finally {
+        setThinking(false);
+      }
+    },
+    [slug, step, pushUserMessage, pushSystemMessage]
+  );
+
+  //
+  // -----------------------------
+  // 2. ADD EVIDENCE
+  // -----------------------------
+  //
+
+  const addEvidence = useCallback(
+    async (type: string, value: string) => {
+      const trimmed = value.trim();
+      if (!trimmed) return;
+
+      setProcessing(true);
+      pushSystemMessage('📄 Adding evidence…');
+
+      try {
+        const res = await fetch(`/api/brands/${slug}/onboarding/evidence`, {
+          method: 'POST',
+          body: JSON.stringify({ type, value: trimmed }),
+        });
+
+        const data = (await res.json()) as EvidenceSingleResponse;
+
+        if (!res.ok || !data.success || !data.data) {
+          const errMsg = data.error || 'Failed to add evidence';
+          pushSystemMessage(`❌ Could not add evidence: ${errMsg}`);
+          return;
+        }
+
+        setEvidence((prev) => [...prev, data.data]);
+        pushSystemMessage('✅ Evidence received');
+      } catch (err) {
+        console.error('addEvidence error:', err);
+        pushSystemMessage('❌ Could not add evidence');
+      } finally {
+        setProcessing(false);
+      }
+    },
+    [slug, pushSystemMessage]
+  );
+
+  //
+  // -----------------------------
+  // 3. REMOVE EVIDENCE
+  // -----------------------------
+  //
+
+  const removeEvidence = useCallback(
+    async (id: string) => {
+      if (!id) return;
+
+      setProcessing(true);
+      pushSystemMessage('🗑️ Removing evidence…');
+
+      try {
+        const url = new URL(
+          `/api/brands/${slug}/onboarding/evidence`,
+          window.location.origin
+        );
+        url.searchParams.set('id', id);
+
+        const res = await fetch(url.toString(), {
+          method: 'DELETE',
+        });
+
+        const data = (await res.json()) as {
+          success: boolean;
+          error?: string;
+        };
+
+        if (!res.ok || !data.success) {
+          const errMsg = data.error || 'Failed to delete evidence';
+          pushSystemMessage(`❌ Could not delete evidence: ${errMsg}`);
+          return;
+        }
+
+        setEvidence((prev) => prev.filter((item) => item.id !== id));
+        pushSystemMessage('✅ Evidence removed');
+      } catch (error) {
+        console.error('removeEvidence error:', error);
+        pushSystemMessage('❌ Could not delete evidence');
+      } finally {
+        setProcessing(false);
+      }
+    },
+    [slug, pushSystemMessage]
+  );
+
+  //
+  // -----------------------------
+  // 4. START ANALYSIS
+  // -----------------------------
+  //
+
+  const startAnalysis = useCallback(
+    async (options?: { brandNameOnly?: boolean }) => {
+      setProcessing(true);
+      setAnalysisProgress([]);
+      pushSystemMessage('🔎 Starting brand analysis…');
+
+      // Move to analyzing step locally
+      setStep('analyzing');
+
+      try {
+        // For UX: immediately show progress stages
+        setAnalysisProgress([...ANALYSIS_STEPS]);
+
+        const res = await fetch(`/api/brands/${slug}/onboarding/analyze`, {
+          method: 'POST',
+          body: JSON.stringify(options ?? {}),
+        });
+
+        const data = (await res.json()) as AnalyzeResponse;
+
+        if (!res.ok || !data.success) {
+          const errMsg =
+            data.error ||
+            'Analysis failed. Please check your evidence or try again.';
+          pushSystemMessage(`⚠️ ${errMsg}`);
+
+          // Move back to waiting state
+          setStep('waiting_for_analysis');
+          return;
+        }
+
+        // After analysis completes, refresh BrandBrain from DB
+        await refreshBrandBrain();
+
+        pushSystemMessage('🧠 Brand Brain has been generated!');
+        setStep('reviewing_brand_brain');
+      } catch (err) {
+        console.error('startAnalysis error:', err);
+        pushSystemMessage('❌ Analysis failed. Please try again.');
+        setStep('waiting_for_analysis');
+      } finally {
+        setProcessing(false);
+        setAnalysisProgress([]);
+      }
+    },
+    [slug, refreshBrandBrain, pushSystemMessage]
+  );
+
+  //
+  // -----------------------------
+  // 5. RESET ANALYSIS
+  // -----------------------------
+  //
+
+  const resetAnalysis = useCallback(async () => {
+    setProcessing(true);
+    pushSystemMessage('🔄 Resetting analysis…');
+
+    try {
+      const res = await fetch(
+        `/api/brands/${slug}/onboarding/analyze/reset`,
+        {
+          method: 'POST',
+        }
+      );
+
+      const data = (await res.json()) as {
+        success: boolean;
+        error?: string;
       };
-      
-      init();
+
+      if (!res.ok || !data.success) {
+        const errMsg = data.error || 'Failed to reset analysis';
+        pushSystemMessage(`❌ Could not reset analysis: ${errMsg}`);
+        return;
+      }
+
+      pushSystemMessage('✔️ Analysis reset successfully');
+      setStep('collecting_evidence');
+      setAnalysisProgress([]);
+    } catch (err) {
+      console.error('resetAnalysis error:', err);
+      pushSystemMessage('❌ Could not reset analysis');
+    } finally {
+      setProcessing(false);
     }
-  }, [slug, fetchOnboardingState, refreshEvidence, fetchBrandBrain]);
-  
-  // Context value
-  const contextValue: OnboardingContextType = {
-    // State
-    step: state.step,
-    brandBrain: state.brandBrain,
-    evidence: state.evidence,
-    activeSection: state.activeSection,
-    isLoading: state.isLoading,
-    error: state.error,
-    chatMessages: state.chatMessages || [], // <-- ADD THIS
-    
-    // Actions
-    updateStep,
-    fetchBrandBrain,
-    refreshEvidence,
-    dispatch: handleDispatch,
+  }, [slug, pushSystemMessage]);
+
+  //
+  // -----------------------------
+  // 6. UPDATE STEP (persisted)
+// -----------------------------
+  //
+
+  const updateStep = useCallback(
+    async (newStep: OnboardingStep) => {
+      // Local optimistic update
+      setStep(newStep);
+
+      try {
+        const res = await fetch(
+          `/api/brands/${slug}/onboarding/state`,
+          {
+            method: 'PATCH',
+            body: JSON.stringify({ step: newStep }),
+          }
+        );
+
+        const data = (await res.json()) as OnboardingStateResponse;
+
+        if (!res.ok || !data.success || !data.data) {
+          const errMsg = data.error || 'Failed to update onboarding step';
+          pushSystemMessage(`⚠️ Could not save step: ${errMsg}`);
+          return;
+        }
+
+        // Sync step with server response (string step)
+        setStep(data.data.step);
+      } catch (error) {
+        console.error('updateStep error:', error);
+        pushSystemMessage('⚠️ Could not sync onboarding step.');
+      }
+    },
+    [slug, pushSystemMessage]
+  );
+
+  //
+  // -----------------------------
+  // 7. UPDATE BRAND BRAIN
+  // -----------------------------
+  //
+
+  const updateBrandBrain = useCallback(
+    async (updates: Partial<BrandBrainData>) => {
+      if (!updates || Object.keys(updates).length === 0) return;
+
+      setProcessing(true);
+      pushSystemMessage('✏️ Updating Brand Brain…');
+
+      try {
+        const res = await fetch(`/api/brands/${slug}/onboarding/brain`, {
+          method: 'PATCH',
+          body: JSON.stringify(updates),
+        });
+
+        const data = (await res.json()) as BrainPatchResponse;
+
+        if (!res.ok || !data.success || !data.data) {
+          const errMsg = data.error || 'Failed to update Brand Brain';
+          pushSystemMessage(`❌ Could not update Brand Brain: ${errMsg}`);
+          return;
+        }
+
+        setBrandBrain(data.data);
+        pushSystemMessage('✔️ Brand Brain updated');
+      } catch (err) {
+        console.error('updateBrandBrain error:', err);
+        pushSystemMessage('❌ Could not update Brand Brain');
+      } finally {
+        setProcessing(false);
+      }
+    },
+    [slug, pushSystemMessage]
+  );
+
+  //
+  // -----------------------------
+  // 8. COMPLETE ONBOARDING
+  // -----------------------------
+  //
+
+  const completeOnboarding = useCallback(async () => {
+    setProcessing(true);
+    pushSystemMessage('🎉 Completing onboarding…');
+
+    try {
+      const res = await fetch(`/api/brands/${slug}/onboarding/brain`, {
+        method: 'POST',
+      });
+
+      const data = (await res.json()) as BrainCompleteResponse;
+
+      if (!res.ok || !data.success || !data.data) {
+        const errMsg = data.error || 'Failed to complete onboarding';
+        pushSystemMessage(`❌ Could not complete onboarding: ${errMsg}`);
+        return;
+      }
+
+      setBrandBrain(data.data.brain);
+      pushSystemMessage('🎊 Onboarding complete! Your Brand Brain is live.');
+      setStep('complete');
+    } catch (err) {
+      console.error('completeOnboarding error:', err);
+      pushSystemMessage('❌ Could not complete onboarding');
+    } finally {
+      setProcessing(false);
+    }
+  }, [slug, pushSystemMessage]);
+
+  //
+  // -----------------------------
+  // Initial sync (optional)
+  // -----------------------------
+  //
+
+  useEffect(() => {
+    // If initial brain missing but backend has one, you could call refreshBrandBrain() here.
+    // For now, we trust the server-provided initialBrain.
+  }, [refreshBrandBrain]);
+
+  //
+  // -----------------------------
+  // Provider Value
+  // -----------------------------
+  //
+
+  const value: OnboardingState = {
+    step,
+    evidence,
+    brandBrain,
+    messages,
+    isThinking,
+    isProcessing,
+    analysisProgress,
+
+    sendChatMessage,
+    addEvidence,
+    removeEvidence,
     startAnalysis,
+    resetAnalysis,
+    updateStep,
     updateBrandBrain,
     completeOnboarding,
-    addEvidence,
-    deleteEvidence,
-    sendChatMessage,
   };
-  
+
   return (
-    <OnboardingContext.Provider value={contextValue}>
+    <OnboardingContext.Provider value={value}>
       {children}
     </OnboardingContext.Provider>
   );
-}
-
-// Hook for using the context
-export function useOnboarding() {
-  const context = useContext(OnboardingContext);
-  if (context === undefined) {
-    throw new Error('useOnboarding must be used within OnboardingStateManager');
-  }
-  return context;
 }

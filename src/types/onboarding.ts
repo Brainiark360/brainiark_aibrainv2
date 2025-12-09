@@ -12,7 +12,7 @@ export type OnboardingStep =
 
 export type BrandBrainSection = 'summary' | 'audience' | 'tone' | 'pillars' | 'recommendations' | 'offers' | 'competitors' | 'channels';
 export type BrainSectionKey = BrandBrainSection;
-export type EvidenceType = 'website' | 'document' | 'social' | 'manual';
+export type EvidenceType = 'website' | 'document' | 'social' | 'manual' | 'brand_name_search';
 export type EvidenceStatus = 'pending' | 'processing' | 'complete';
 
 // ========== API RESPONSE TYPES ==========
@@ -20,7 +20,10 @@ export interface ApiResponse<T = any> {
   success: boolean;
   data?: T;
   error?: string;
+  code?: string;
+  details?: any;
 }
+
 
 // ========== AUTHENTICATION TYPES ==========
 export interface SessionUser {
@@ -96,10 +99,16 @@ export interface EvidenceItem {
 export interface FrontendEvidenceItem {
   id: string;
   content: string;
-  type: 'text' | 'image' | 'url' | 'file';
+  type: 'text' | 'image' | 'url' | 'file' | 'search'; // Added 'search'
   source: string;
   createdAt: string;
-  metadata?: Record<string, any>;
+  metadata: {
+    originalValue: string;
+    status: string;
+    analyzedContent?: string;
+    analysisSummary?: string;
+    searchType?: 'brand_search';
+  };
 }
 
 export interface FrontendBrandBrainData {
@@ -167,14 +176,15 @@ export interface OnboardingContextType {
   activeSection: BrandBrainSection | null;
   isLoading: boolean;
   error: string | null;
-  chatMessages: ChatMessage[]; // <-- ADD THIS
+  chatMessages: ChatMessage[];
   
   // Actions
   updateStep: (step: OnboardingStep) => Promise<void>;
   fetchBrandBrain: () => Promise<FrontendBrandBrainData | null>;
   refreshEvidence: () => Promise<FrontendEvidenceItem[]>;
-  dispatch: (event: OnboardingEvent) => void;
-  startAnalysis: () => Promise<void>;
+  dispatch: (event: OnboardingEvent) => Promise<void>;
+  startAnalysis: (forceRestart?: boolean) => Promise<void>;
+  startBrandNameAnalysis: () => Promise<void>; // <-- ADD THIS LINE
   updateBrandBrain: (updates: Partial<FrontendBrandBrainData>) => Promise<void>;
   completeOnboarding: () => Promise<void>;
   addEvidence: (type: EvidenceType, value: string) => Promise<FrontendEvidenceItem>;
@@ -200,4 +210,23 @@ export interface OnboardingProgress {
   currentStep: OnboardingStep;
   totalSteps: number;
   percentage: number;
+}
+
+
+// Add brand name search specific types
+export interface BrandSearchResult {
+  success: boolean;
+  data?: {
+    summary: string;
+    audience: string;
+    tone: string;
+    pillars: string[];
+    offers: string;
+    competitors: string[];
+    channels: string[];
+    recommendations?: string[];
+    searchBased: boolean;
+    sourceCount: number;
+  };
+  error?: string;
 }

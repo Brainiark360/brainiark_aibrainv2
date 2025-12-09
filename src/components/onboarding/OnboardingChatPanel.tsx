@@ -1,620 +1,673 @@
-// In /components/onboarding/OnboardingChatPanel.tsx
-'use client';
+// /src/components/onboarding/OnboardingChatPanel.tsx
+"use client";
 
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
-import { useParams } from 'next/navigation';
-import { 
-  Send, Paperclip, Smile, Sparkles, 
-  Brain, Zap, CheckCircle, Loader2 
-} from 'lucide-react';
+import React, {
+  FormEvent,
+  KeyboardEvent,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
+import { motion, AnimatePresence } from "framer-motion";
+import {
+  Bot,
+  Loader2,
+  Send,
+  Sparkles,
+  User,
+  Brain,
+  MessageSquare,
+  ChevronRight,
+  Cpu,
+} from "lucide-react";
 
-import { cn } from '@/lib/utils';
-import { useOnboarding } from './OnboardingStateManager';
-import { ChatMessage as ChatMessageType, OnboardingStep } from '@/types/onboarding';
+import { useOnboarding } from "./OnboardingStateManager";
+import { cn } from "@/lib/utils";
 
-interface ChatMessageUI {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: Date;
-  actions?: Array<{
-    type: string;
-    label: string;
-    action: () => Promise<void> | void;
-    variant?: 'primary' | 'secondary' | 'ghost';
-  }>;
-  isTyping?: boolean;
-  isLoading?: boolean;
+//
+// -----------------------------
+// Types & helpers
+// -----------------------------
+//
+
+interface ParsedAction {
+  label: string;
+  action: string;
+  variant: "primary" | "secondary" | "ghost" | string;
+  raw: string;
 }
 
-interface OnboardingChatPanelProps {
-  currentStep: 'intro' | 'collecting_evidence' | 'waiting_for_analysis' | 'analyzing' | 'reviewing_brand_brain' | 'complete';
-  onStepUpdate: (step: typeof currentStep) => Promise<void>;
+interface ParsedMessage {
+  text: string;
+  actions: ParsedAction[];
 }
 
-export default function OnboardingChatPanel({ 
-  currentStep, 
-  onStepUpdate 
-}: OnboardingChatPanelProps) {
-  const params = useParams();
-  const brandSlug = params.slug as string;
-  
-  const { sendChatMessage, chatMessages, step } = useOnboarding();
-  
-  const [inputValue, setInputValue] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
-  const [isTyping, setIsTyping] = useState(false);
-  const [uiMessages, setUiMessages] = useState<ChatMessageUI[]>([
-    {
-      id: '1',
-      role: 'assistant',
-      content: `Welcome to your new brand workspace! I'm Brainiark AI, your brand strategy assistant. Let's work together to build your Brand Brain. First — tell me a bit about your brand. You can share your website URL, describe your brand in your own words, or upload any materials you'd like me to analyze.`,
-      timestamp: new Date(),
-      actions: [
-        {
-          type: 'start-description',
-          label: 'Describe my brand',
-          action: () => handleAction('start-description'),
-          variant: 'primary'
-        },
-        {
-          type: 'add-website',
-          label: 'Add website',
-          action: () => handleAction('add-website'),
-          variant: 'secondary'
-        },
-        {
-          type: 'upload-files',
-          label: 'Upload files',
-          action: () => handleAction('upload-files'),
-          variant: 'ghost'
-        }
-      ]
-    }
-  ]);
-  
-  const messagesEndRef = useRef<HTMLDivElement>(null);
-  
-  // Replace the entire useEffect for converting chat messages with this:
-  useEffect(() => {
-    if (chatMessages && chatMessages.length > 0) {
-      // Convert global chat messages to UI format
-      const convertedMessages: ChatMessageUI[] = chatMessages.map(msg => {
-        // Convert to UI format with actions if needed
-        const uiMessage: ChatMessageUI = {
-          id: msg.id,
-          role: msg.role,
-          content: msg.content,
-          timestamp: new Date(msg.timestamp),
-          isTyping: msg.isLoading || false,
-          isLoading: msg.isLoading || false,
-        };
-        
-        // Only add actions to non-loading assistant messages
-        if (msg.role === 'assistant' && !msg.isLoading && msg.content) {
-          // Parse actions from content or use step-based actions
-          const actions = parseAIResponse(msg.content);
-          if (actions && actions.length > 0) {
-            uiMessage.actions = actions;
-          }
-        }
-        
-        return uiMessage;
-      });
-      
-      setUiMessages(convertedMessages);
-    }
-  }, [chatMessages]);
-    
-  // Scroll to bottom when messages change
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [uiMessages]);
-  
-  // Initialize chat based on current step
-  useEffect(() => {
-    initializeChatForStep();
-  }, [currentStep]);
-  
-  const initializeChatForStep = async () => {
-    // If we're in a new step and need to add AI messages
-    if (uiMessages.length <= 1) {
-      await addAIMessageForStep(currentStep);
-    }
-  };
-  
-  const addAIMessageForStep = async (step: typeof currentStep) => {
-    setIsTyping(true);
-    
-    // Create step-specific AI messages
-    let newMessage: ChatMessageUI | null = null;
-    
-    switch (step) {
-      case 'intro':
-        // Initial message already set
-        break;
-        
-      case 'collecting_evidence':
-        newMessage = {
-          id: Date.now().toString(),
-          role: 'assistant',
-          content: 'Great! I can analyze various materials to understand your brand better. You can add:',
-          timestamp: new Date(),
-          actions: [
-            {
-              type: 'add-website',
-              label: '🌐 Website URL',
-              action: () => handleAction('add-website'),
-              variant: 'secondary'
-            },
-            {
-              type: 'add-social',
-              label: '📱 Social profiles',
-              action: () => handleAction('add-social'),
-              variant: 'secondary'
-            },
-            {
-              type: 'upload-documents',
-              label: '📄 Documents',
-              action: () => handleAction('upload-documents'),
-              variant: 'secondary'
-            },
-            {
-              type: 'skip-evidence',
-              label: 'Skip for now',
-              action: () => handleAction('skip-evidence'),
-              variant: 'ghost'
-            }
-          ]
-        };
-        break;
-        
-      case 'waiting_for_analysis':
-        newMessage = {
-          id: Date.now().toString(),
-          role: 'assistant',
-          content: 'Perfect! I have your materials ready. Would you like me to start analyzing them now to build your Brand Brain?',
-          timestamp: new Date(),
-          actions: [
-            {
-              type: 'start-analysis',
-              label: 'Yes, analyze now',
-              action: () => handleAction('start-analysis'),
-              variant: 'primary'
-            },
-            {
-              type: 'add-more-evidence',
-              label: 'Add more materials',
-              action: () => handleAction('add-more-evidence'),
-              variant: 'secondary'
-            }
-          ]
-        };
-        break;
-        
-      case 'reviewing_brand_brain':
-        newMessage = {
-          id: Date.now().toString(),
-          role: 'assistant',
-          content: 'I\'ve analyzed your brand and drafted your Brand Brain with key insights. Want to review them section by section?',
-          timestamp: new Date(),
-          actions: [
-            {
-              type: 'show-summary',
-              label: 'Show Summary',
-              action: () => handleAction('show-summary'),
-              variant: 'secondary'
-            },
-            {
-              type: 'show-audience',
-              label: 'Show Audience',
-              action: () => handleAction('show-audience'),
-              variant: 'secondary'
-            },
-            {
-              type: 'show-tone',
-              label: 'Show Tone',
-              action: () => handleAction('show-tone'),
-              variant: 'secondary'
-            },
-            {
-              type: 'show-pillars',
-              label: 'Show Pillars',
-              action: () => handleAction('show-pillars'),
-              variant: 'secondary'
-            }
-          ]
-        };
-        break;
-    }
-    
-    if (newMessage) {
-      setUiMessages(prev => [...prev, newMessage!]);
-    }
-    
-    setIsTyping(false);
-  };
-  
- 
-  const handleAction = async (actionType: string) => {
-    console.log('Action triggered:', actionType);
-    
-    // Map action types to user messages AND step updates
-    const actionConfigs: Record<string, { message: string; step?: OnboardingStep; handler?: () => Promise<void> }> = {
-      'start-description': { 
-        message: 'I want to describe my brand',
-        handler: async () => {
-          // Send chat message
-          await handleSendMessage('I want to describe my brand');
-          // After describing, move to evidence collection
-          setTimeout(() => {
-            onStepUpdate('collecting_evidence');
-          }, 1500);
-        }
-      },
-      'add-website': { 
-        message: 'Add website URL',
-        step: 'collecting_evidence'
-      },
-      'upload-files': { 
-        message: 'Upload files',
-        step: 'collecting_evidence'
-      },
-      'add-social': { 
-        message: 'Add social profiles',
-        step: 'collecting_evidence'
-      },
-      'upload-documents': { 
-        message: 'Upload documents',
-        step: 'collecting_evidence'
-      },
-      'skip-evidence': { 
-        message: 'Skip evidence for now',
-        handler: async () => {
-          await handleSendMessage('Skip evidence for now');
-          // Skip to waiting for analysis
-          setTimeout(() => {
-            onStepUpdate('waiting_for_analysis');
-          }, 1000);
-        }
-      },
-      'start-analysis': { 
-        message: 'Start analysis now',
-        handler: async () => {
-          await handleSendMessage('Start analysis now');
-          // Move to analyzing step
-          setTimeout(() => {
-            onStepUpdate('analyzing');
-          }, 1000);
-        }
-      },
-      'add-more-evidence': { 
-        message: 'Add more materials',
-        step: 'collecting_evidence'
-      },
-      'show-summary': { 
-        message: 'Show Summary section',
-        handler: async () => {
-          // This should trigger the right panel to show summary
-          // We'll handle this through the state manager
-          await handleSendMessage('Show me the brand summary');
-        }
-      },
-      'show-audience': { 
-        message: 'Show Audience section',
-        handler: async () => {
-          await handleSendMessage('Show me the target audience');
-        }
-      },
-      'show-tone': { 
-        message: 'Show Tone section',
-        handler: async () => {
-          await handleSendMessage('Show me the brand tone');
-        }
-      },
-      'show-pillars': { 
-        message: 'Show Pillars section',
-        handler: async () => {
-          await handleSendMessage('Show me the content pillars');
-        }
-      },
-    };
+const ACTION_REGEX = /\[ACTION:([^:]+):([^:]+):([^\]]+)\]/g;
 
-    const config = actionConfigs[actionType];
-    if (!config) return;
+function parseMessageContent(raw: string): ParsedMessage {
+  if (!raw) return { text: "", actions: [] };
 
-    // Execute handler if provided
-    if (config.handler) {
-      await config.handler();
-    } else {
-      // Just send the message
-      await handleSendMessage(config.message);
-      
-      // Update step if specified
-      if (config.step && config.step !== currentStep) {
-        await onStepUpdate(config.step);
-      }
-    }
-  };
+  const actions: ParsedAction[] = [];
+  let text = raw;
 
-  // Also update the handleSendMessage to be more aware of onboarding flow:
-  const handleSendMessage = async (customMessage?: string) => {
-    const messageToSend = customMessage || inputValue;
-    
-    if (!messageToSend.trim() || isLoading) return;
-    
-    if (!customMessage) {
-      setInputValue('');
-    }
-    
-    setIsLoading(true);
-    
-    try {
-      // Send the message using the state manager
-      await sendChatMessage(messageToSend);
-      
-      // Check if we should auto-progress based on message content
-      const messageLower = messageToSend.toLowerCase();
-      
-      // Auto-detect evidence mentions
-      if (currentStep === 'intro' && 
-          (messageLower.includes('website') || 
-          messageLower.includes('http') ||
-          messageLower.includes('.com') ||
-          messageLower.includes('social') ||
-          messageLower.includes('document') ||
-          messageLower.includes('pdf') ||
-          messageLower.includes('file'))) {
-        // User mentioned evidence, move to evidence collection
-        setTimeout(async () => {
-          await onStepUpdate('collecting_evidence');
-        }, 1000);
-      }
-      
-      // Auto-detect analysis readiness
-      if (currentStep === 'collecting_evidence' && 
-          (messageLower.includes('analyze') || 
-          messageLower.includes('ready') ||
-          messageLower.includes('go ahead') ||
-          messageLower.includes('proceed'))) {
-        // User wants to analyze, move to analysis
-        setTimeout(async () => {
-          await onStepUpdate('waiting_for_analysis');
-        }, 1000);
-      }
-      
-    } catch (error) {
-      console.error('Failed to send message:', error);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-  
-  // Helper function to parse AI responses for actions
-  const parseAIResponse = (content: string): ChatMessageUI['actions'] => {
-    // Look for action patterns in the AI response
-    // Format: [ACTION:label:type:variant] or just [ACTION:label:type]
-    const actionRegex = /\[ACTION:([^:]+):([^:\]]+)(?::([^\]]+))?\]/g;
-    const matches = [...content.matchAll(actionRegex)];
-    
-    if (matches.length === 0) return undefined;
-    
-    return matches.map(match => {
-      const [, label, type, variant = 'secondary'] = match;
-      
-      return {
-        type,
-        label,
-        action: () => handleAction(type),
-        variant: variant as 'primary' | 'secondary' | 'ghost',
-      };
+  let match: RegExpExecArray | null;
+  while ((match = ACTION_REGEX.exec(raw)) !== null) {
+    const [, label, action, variant] = match;
+    actions.push({
+      label: label.trim(),
+      action: action.trim(),
+      variant: variant.trim() as ParsedAction["variant"],
+      raw: match[0],
     });
-  };
-  
+  }
+
+  // Remove the action tokens from shown text
+  actions.forEach((a) => {
+    text = text.replace(a.raw, "").trim();
+  });
+
+  return { text, actions };
+}
+
+//
+// -----------------------------
+// UI Subcomponents
+// -----------------------------
+//
+
+function ThinkingIndicator() {
   return (
-    <div className="flex flex-col h-[600px] card-base border border-[rgb(var(--border))] overflow-hidden">
-      {/* Chat Header */}
-      <div className="flex-shrink-0 p-4 border-b border-[rgb(var(--border))] bg-gradient-to-r from-[rgb(var(--os-accent-soft))] to-transparent">
-        <div className="flex items-center gap-3">
-          <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[rgb(var(--os-accent))] to-purple-500 flex items-center justify-center">
-            <Brain className="w-5 h-5 text-white" />
-          </div>
-          <div>
-            <h3 className="font-semibold text-[rgb(var(--foreground))]">
-              Brainiark AI Assistant
-            </h3>
-            <p className="text-xs text-[rgb(var(--muted-foreground))]">
-              Interactive brand strategy onboarding
-            </p>
-          </div>
-          <div className="ml-auto flex items-center gap-2">
-            <div className="w-2 h-2 rounded-full bg-green-500 animate-pulse" />
-            <span className="text-xs text-[rgb(var(--muted-foreground))]">
-              {isLoading ? 'Thinking...' : 'Active'}
-            </span>
-          </div>
+    <div className="flex gap-3">
+      <div className="flex-shrink-0">
+        <div className="flex h-8 w-8 items-center justify-center rounded-full bg-gradient-to-br from-[rgb(var(--os-accent))] to-purple-500">
+          <Brain className="h-4 w-4 text-white" />
         </div>
       </div>
-      
-      {/* Messages Container */}
-      <div className="flex-1 overflow-y-auto p-4 space-y-6 scrollbar-thin">
-        <AnimatePresence initial={false}>
-          {uiMessages.map((message) => (
-            <motion.div
-              key={message.id}
-              initial={{ opacity: 0, y: 10 }}
-              animate={{ opacity: 1, y: 0 }}
-              exit={{ opacity: 0, y: -10 }}
-              className={cn(
-                'flex gap-3',
-                message.role === 'user' ? 'flex-row-reverse' : ''
-              )}
-            >
-              {message.role === 'assistant' && (
-                <div className="flex-shrink-0">
-                  <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[rgb(var(--os-accent))] to-purple-500 flex items-center justify-center">
-                    <Brain className="w-4 h-4 text-white" />
-                  </div>
-                </div>
-              )}
-              
-              <div className={cn(
-                'flex-1 space-y-2 max-w-[80%]',
-                message.role === 'user' ? 'items-end' : ''
-              )}>
-                <div className={cn(
-                  'p-3 rounded-2xl transition-all',
-                  message.role === 'user'
-                    ? 'bg-[rgb(var(--os-accent))] text-white ml-auto rounded-br-none'
-                    : 'bg-[rgb(var(--secondary))] text-[rgb(var(--foreground))] rounded-bl-none',
-                  message.isLoading ? 'opacity-80' : ''
-                )}>
-                  {message.isLoading && !message.content ? (
-                    <div className="flex gap-1">
-                      <div className="w-2 h-2 rounded-full bg-[rgb(var(--os-accent))] animate-pulse" />
-                      <div className="w-2 h-2 rounded-full bg-[rgb(var(--os-accent))] animate-pulse delay-150" />
-                      <div className="w-2 h-2 rounded-full bg-[rgb(var(--os-accent))] animate-pulse delay-300" />
-                    </div>
-                  ) : (
-                    <>
-                      <p className="whitespace-pre-wrap">{message.content}</p>
-                      
-                      {/* Timestamp */}
-                      <div className={cn(
-                        'text-xs mt-2',
-                        message.role === 'user' 
-                          ? 'text-white/70 text-right' 
-                          : 'text-[rgb(var(--muted-foreground))]'
-                      )}>
-                        {message.timestamp.toLocaleTimeString([], { 
-                          hour: '2-digit', 
-                          minute: '2-digit' 
-                        })}
-                      </div>
-                    </>
-                  )}
-                </div>
-                
-                {/* Actions - parse from AI response or use predefined */}
-                {message.actions && message.actions.length > 0 && !message.isLoading && (
-                  <div className={cn(
-                    'flex flex-wrap gap-2',
-                    message.role === 'user' ? 'justify-end' : ''
-                  )}>
-                    {message.actions.map((action, index) => (
-                      <motion.button
-                        key={`${message.id}-action-${index}`}
-                        whileHover={{ scale: 1.02 }}
-                        whileTap={{ scale: 0.98 }}
-                        onClick={action.action}
-                        className={cn(
-                          'px-3 py-2 rounded-lg text-sm font-medium transition-all',
-                          action.variant === 'primary'
-                            ? 'bg-[rgb(var(--os-accent))] text-white hover:opacity-90'
-                            : action.variant === 'secondary'
-                            ? 'border border-[rgb(var(--border))] hover:bg-[rgb(var(--secondary))]'
-                            : 'text-[rgb(var(--muted-foreground))] hover:text-[rgb(var(--foreground))]'
-                        )}
-                      >
-                        {action.label}
-                      </motion.button>
-                    ))}
-                  </div>
-                )}
-              </div>
-              
-              {message.role === 'user' && (
-                <div className="flex-shrink-0">
-                  <div className="w-8 h-8 rounded-full bg-[rgb(var(--secondary))] flex items-center justify-center">
-                    <span className="text-sm font-medium">U</span>
-                  </div>
-                </div>
-              )}
-            </motion.div>
-          ))}
-        </AnimatePresence>
-        
-        {/* Typing Indicator for step-based messages */}
-        {isTyping && (
-          <motion.div
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className="flex gap-3"
-          >
-            <div className="flex-shrink-0">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-[rgb(var(--os-accent))] to-purple-500 flex items-center justify-center">
-                <Brain className="w-4 h-4 text-white" />
-              </div>
-            </div>
-            <div className="flex-1">
-              <div className="p-3 rounded-2xl bg-[rgb(var(--secondary))] rounded-bl-none w-24">
-                <div className="flex gap-1">
-                  <div className="w-2 h-2 rounded-full bg-[rgb(var(--os-accent))] animate-pulse" />
-                  <div className="w-2 h-2 rounded-full bg-[rgb(var(--os-accent))] animate-pulse delay-150" />
-                  <div className="w-2 h-2 rounded-full bg-[rgb(var(--os-accent))] animate-pulse delay-300" />
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        )}
-        
-        <div ref={messagesEndRef} />
-      </div>
-      
-      {/* Input Area */}
-      <div className="flex-shrink-0 p-4 border-t border-[rgb(var(--border))] bg-[rgb(var(--os-surface))]">
-        <div className="flex gap-2">
-          <div className="flex-1 relative">
-            <input
-              type="text"
-              value={inputValue}
-              onChange={(e) => setInputValue(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault();
-                  handleSendMessage();
-                }
-              }}
-              placeholder="Type your message or describe your brand..."
-              className="w-full px-4 py-3 pl-10 pr-12 rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--background))] focus:outline-none focus:ring-2 focus:ring-[rgb(var(--os-accent))] focus:border-transparent"
-              disabled={isLoading}
-            />
-            <div className="absolute left-3 top-1/2 transform -translate-y-1/2">
-              <Smile className="w-4 h-4 text-[rgb(var(--muted-foreground))]" />
-            </div>
-            <div className="absolute right-3 top-1/2 transform -translate-y-1/2 flex items-center gap-1">
-              <button
-                className="p-1 hover:bg-[rgb(var(--secondary))] rounded"
-                disabled={isLoading}
-              >
-                <Paperclip className="w-4 h-4 text-[rgb(var(--muted-foreground))]" />
-              </button>
-              <button
-                onClick={() => handleSendMessage()}
-                disabled={!inputValue.trim() || isLoading}
-                className={cn(
-                  "p-1 hover:bg-[rgb(var(--secondary))] rounded transition-all",
-                  isLoading ? "animate-pulse" : ""
-                )}
-              >
-                {isLoading ? (
-                  <Loader2 className="w-4 h-4 text-[rgb(var(--muted-foreground))] animate-spin" />
-                ) : (
-                  <Send className="w-4 h-4 text-[rgb(var(--muted-foreground))]" />
-                )}
-              </button>
-            </div>
+      <div className="flex-1">
+        <div className="inline-flex max-w-[200px] items-center rounded-2xl rounded-bl-none bg-[rgb(var(--secondary))] px-3 py-2">
+          <span className="mr-1 text-[0.7rem] text-[rgb(var(--muted-foreground))]">
+            Brainiark is thinking
+          </span>
+          <div className="flex gap-1.5">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[rgb(var(--os-accent))]" />
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[rgb(var(--os-accent))] delay-150" />
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[rgb(var(--os-accent))] delay-300" />
           </div>
-        </div>
-        <div className="mt-2 flex items-center justify-between text-xs text-[rgb(var(--muted-foreground))]">
-          <div className="flex items-center gap-2">
-            <Zap className="w-3 h-3" />
-            <span>AI-powered streaming conversation</span>
-          </div>
-          <span>Press Enter to send</span>
         </div>
       </div>
     </div>
   );
 }
+
+//
+// -----------------------------
+// Main component
+// -----------------------------
+//
+
+const OnboardingChat: React.FC = () => {
+  const {
+    messages,
+    sendChatMessage,
+    isThinking,
+    isProcessing,
+    step,
+    startAnalysis,
+    resetAnalysis,
+    completeOnboarding,
+  } = useOnboarding();
+
+  const [input, setInput] = useState("");
+  const [hasShownWelcome, setHasShownWelcome] = useState(false);
+  const [isInputFocused, setIsInputFocused] = useState(false);
+
+  const scrollContainerRef = useRef<HTMLDivElement | null>(null);
+  const bottomRef = useRef<HTMLDivElement | null>(null);
+
+  //
+  // -----------------------------------
+  // Autoscroll behavior
+  // -----------------------------------
+  //
+
+  useEffect(() => {
+    if (!bottomRef.current) return;
+
+    // Simple but stable scroll: snap to bottom when new messages arrive.
+    bottomRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [messages.length, isThinking]);
+
+  //
+  // -----------------------------------
+  // Initial conversational welcome
+  // -----------------------------------
+  //
+
+  const syntheticWelcome = useMemo(() => {
+    if (hasShownWelcome || messages.length > 0) return null;
+
+    return {
+      id: "welcome-0",
+      role: "assistant" as const,
+      createdAt: Date.now(),
+      content:
+        "# Welcome to Brainiark AI 👋\n\n" +
+        "I’ll help you set up your **Brand Brain** through a calm, guided conversation.\n\n" +
+        "## What we’ll do together:\n" +
+        "• Collect your brand evidence (websites, socials, docs, descriptions)\n" +
+        "• Run GPT-powered analysis with live progress\n" +
+        "• Build a structured Brand Brain (summary, audience, tone, pillars, etc.)\n" +
+        "• Review & refine it together, then activate your workspace\n\n" +
+        "You can **describe your brand**, paste a link, or use one of these quick options:\n\n" +
+        "[ACTION:Start GPT Analysis:start-gpt-analysis:primary]" +
+        "[ACTION:Add Evidence First:collect-evidence:secondary]" +
+        "[ACTION:Describe My Brand:describe-brand:secondary]",
+    };
+  }, [hasShownWelcome, messages.length]);
+
+  useEffect(() => {
+    if (messages.length === 0 && !hasShownWelcome) {
+      setHasShownWelcome(true);
+    }
+  }, [messages.length, hasShownWelcome]);
+
+  //
+  // -----------------------------------
+  // Input handling
+  // -----------------------------------
+  //
+
+  const handleSubmit = async (e?: FormEvent) => {
+    if (e) e.preventDefault();
+    const trimmed = input.trim();
+    if (!trimmed) return;
+    await sendChatMessage(trimmed);
+    setInput("");
+  };
+
+  const handleKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      void handleSubmit();
+    }
+  };
+
+  //
+  // -----------------------------------
+  // Action handlers (from AI buttons)
+  // -----------------------------------
+  //
+
+  const handleActionClick = async (action: ParsedAction) => {
+    const key = action.action.toLowerCase();
+
+    if (key === "start-analysis" || key === "analyze-now") {
+      await startAnalysis();
+      return;
+    }
+
+    if (key === "start-gpt-analysis" || key === "brand-name-analysis") {
+      await startAnalysis({ brandNameOnly: true });
+      return;
+    }
+
+    if (key === "reset-analysis") {
+      await resetAnalysis();
+      return;
+    }
+
+    if (key === "complete-onboarding" || key === "finish") {
+      await completeOnboarding();
+      return;
+    }
+
+    if (key === "collect-evidence") {
+      await sendChatMessage(
+        "I'd like help adding evidence for my brand (websites, socials, docs, or a description)."
+      );
+      return;
+    }
+
+    if (key === "describe-brand") {
+      await sendChatMessage("I want to describe my brand in detail.");
+      return;
+    }
+
+    // Fallback: just send the label so AI can respond contextually
+    await sendChatMessage(action.label);
+  };
+
+  //
+  // -----------------------------------
+  // Render helpers (markdown-ish)
+// -----------------------------------
+  //
+
+  const allMessages = useMemo(() => {
+    const base = syntheticWelcome ? [syntheticWelcome, ...messages] : messages;
+    return base;
+  }, [messages, syntheticWelcome]);
+
+  const renderFormattedText = (text: string) => {
+    const parts: React.ReactNode[] = [];
+    let remaining = text;
+
+    while (remaining.includes("**")) {
+      const start = remaining.indexOf("**");
+      const end = remaining.indexOf("**", start + 2);
+      if (end === -1) break;
+
+      if (start > 0) {
+        parts.push(
+          <span key={parts.length}>{remaining.substring(0, start)}</span>
+        );
+      }
+
+      parts.push(
+        <strong
+          key={parts.length}
+          className="font-semibold text-[rgb(var(--foreground))]"
+        >
+          {remaining.substring(start + 2, end)}
+        </strong>
+      );
+
+      remaining = remaining.substring(end + 2);
+    }
+
+    if (remaining) {
+      parts.push(<span key={parts.length}>{remaining}</span>);
+    }
+
+    return parts;
+  };
+
+  const renderMessageText = (text: string) => {
+    if (!text) return null;
+
+    const lines = text.split("\n");
+
+    return (
+      <div className="space-y-2">
+        {lines.map((line, index) => {
+          // H1
+          if (line.startsWith("# ")) {
+            return (
+              <h2
+                key={index}
+                className="mt-1 text-sm font-semibold text-[rgb(var(--foreground))]"
+              >
+                {line.substring(2)}
+              </h2>
+            );
+          }
+          // H2
+          if (line.startsWith("## ")) {
+            return (
+              <h3
+                key={index}
+                className="mt-1 text-[0.85rem] font-semibold text-[rgb(var(--foreground))]"
+              >
+                {line.substring(3)}
+              </h3>
+            );
+          }
+          // Bullet
+          if (line.startsWith("• ") || line.startsWith("- ")) {
+            return (
+              <div key={index} className="flex items-start gap-2">
+                <span className="mt-1 h-1.5 w-1.5 flex-shrink-0 rounded-full bg-[rgb(var(--os-accent))]" />
+                <span className="text-xs text-[rgb(var(--foreground))]">
+                  {renderFormattedText(line.substring(2))}
+                </span>
+              </div>
+            );
+          }
+
+          if (line.trim()) {
+            return (
+              <p
+                key={index}
+                className="text-xs leading-relaxed text-[rgb(var(--foreground))]"
+              >
+                {renderFormattedText(line)}
+              </p>
+            );
+          }
+
+          return <div key={index} className="h-2" />;
+        })}
+      </div>
+    );
+  };
+
+  //
+  // -----------------------------------
+  // UI
+  // -----------------------------------
+  //
+
+  return (
+    <div className="flex h-full flex-col overflow-hidden rounded-xl border border-[rgb(var(--border))] bg-[rgb(var(--card))] shadow-sm">
+      {/* Header */}
+      <div className="flex items-center justify-between border-b border-[rgb(var(--border))] bg-gradient-to-r from-[rgb(var(--os-accent-soft))] to-transparent px-4 py-3">
+        <div className="flex items-center gap-3">
+          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-gradient-to-br from-[rgb(var(--os-accent))] to-purple-500">
+            <Brain className="h-4 w-4 text-white" />
+          </div>
+          <div>
+            <p className="text-xs font-semibold text-[rgb(var(--foreground))]">
+              Brainiark AI Assistant
+            </p>
+            <p className="text-[0.7rem] text-[rgb(var(--muted-foreground))]">
+              Conversational brand onboarding · No forms, just chat
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-3">
+          {(isThinking || isProcessing) && (
+            <div className="flex items-center gap-2 rounded-full bg-[rgb(var(--secondary))] px-3 py-1.5">
+              <div className="flex gap-1">
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[rgb(var(--os-accent))]" />
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[rgb(var(--os-accent))] delay-150" />
+                <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[rgb(var(--os-accent))] delay-300" />
+              </div>
+              <span className="text-[0.7rem] text-[rgb(var(--muted-foreground))]">
+                {isThinking ? "AI thinking…" : "Processing…"}
+              </span>
+            </div>
+          )}
+          <span
+            className={cn(
+              "h-2 w-2 rounded-full",
+              isThinking || isProcessing
+                ? "bg-yellow-500 animate-pulse"
+                : "bg-emerald-500"
+            )}
+          />
+        </div>
+      </div>
+
+      {/* Messages area */}
+      <div
+        ref={scrollContainerRef}
+        className="flex-1 overflow-y-auto bg-[rgb(var(--os-surface))] p-4 scrollbar-thin"
+      >
+        <div className="mx-auto flex max-w-2xl flex-col gap-3">
+          <AnimatePresence initial={false}>
+            {allMessages.map((msg, index) => {
+              const { text, actions } = parseMessageContent(msg.content);
+              const isUser = msg.role === "user";
+              const isAssistant = msg.role === "assistant";
+              const isSystem = msg.role === "system";
+
+              const previous = index > 0 ? allMessages[index - 1] : null;
+              const sameAuthorAsPrev =
+                previous && previous.role === msg.role && previous.role !== "system";
+
+              const showAvatar = !sameAuthorAsPrev;
+
+              return (
+                <motion.div
+                  key={msg.id}
+                  initial={{ opacity: 0, y: 8 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -8 }}
+                  transition={{ duration: 0.18 }}
+                  className={cn(
+                    "flex w-full gap-2",
+                    isUser ? "flex-row-reverse" : "flex-row"
+                  )}
+                >
+                  {/* Avatar */}
+                  <div className="flex w-8 flex-shrink-0 justify-center">
+                    {showAvatar && (
+                      <>
+                        {isUser ? (
+                          <div className="flex h-8 w-8 items-center justify-center rounded-full bg-[rgb(var(--secondary))]">
+                            <User className="h-4 w-4 text-[rgb(var(--muted-foreground))]" />
+                          </div>
+                        ) : (
+                          <div
+                            className={cn(
+                              "flex h-8 w-8 items-center justify-center rounded-full",
+                              isSystem
+                                ? "bg-gradient-to-br from-blue-500 to-cyan-500"
+                                : "bg-gradient-to-br from-[rgb(var(--os-accent))] to-purple-500"
+                            )}
+                          >
+                            {isSystem ? (
+                              <Sparkles className="h-4 w-4 text-white" />
+                            ) : (
+                              <Bot className="h-4 w-4 text-white" />
+                            )}
+                          </div>
+                        )}
+                      </>
+                    )}
+                  </div>
+
+                  {/* Bubble + Actions */}
+                  <div
+                    className={cn(
+                      "flex max-w-[82%] flex-col gap-1",
+                      isUser && "items-end"
+                    )}
+                  >
+                    <div
+                      className={cn(
+                        "rounded-2xl px-3 py-2 text-xs leading-relaxed shadow-sm",
+                        isUser &&
+                          "ml-auto rounded-br-none bg-[rgb(var(--os-accent))] text-white",
+                        isAssistant &&
+                          "rounded-bl-none bg-[rgb(var(--secondary))] text-[rgb(var(--foreground))]",
+                        isSystem &&
+                          "border border-[rgb(var(--os-accent)/0.4)] bg-gradient-to-r from-[rgb(var(--os-accent-soft))] to-transparent text-[rgb(var(--foreground))]"
+                      )}
+                    >
+                      {renderMessageText(text)}
+                    </div>
+
+                    {/* Action buttons (AI only) */}
+                    {actions.length > 0 && !isUser && (
+                      <div className="flex flex-wrap gap-1.5 pt-0.5">
+                        {actions.map((action, idx) => {
+                          const iconMap: Record<string, React.ReactNode> = {
+                            "start-gpt-analysis": <Cpu className="h-3 w-3" />,
+                            "collect-evidence": (
+                              <MessageSquare className="h-3 w-3" />
+                            ),
+                            "describe-brand": (
+                              <MessageSquare className="h-3 w-3" />
+                            ),
+                            primary: <Sparkles className="h-3 w-3" />,
+                            default: <ChevronRight className="h-3 w-3" />,
+                          };
+
+                          const icon =
+                            iconMap[action.action] ||
+                            iconMap[action.variant] ||
+                            iconMap.default;
+
+                          return (
+                            <motion.button
+                              key={`${msg.id}-${idx}`}
+                              whileHover={{ scale: 1.02 }}
+                              whileTap={{ scale: 0.98 }}
+                              type="button"
+                              onClick={() => void handleActionClick(action)}
+                              className={cn(
+                                "inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-[0.7rem] font-medium transition",
+                                action.variant === "primary"
+                                  ? "border-transparent bg-[rgb(var(--os-accent))] text-white hover:bg-[rgb(var(--os-accent)/0.9)] shadow-sm"
+                                  : action.variant === "secondary"
+                                  ? "border-[rgb(var(--border))] bg-[rgb(var(--card))] text-[rgb(var(--foreground))] hover:bg-[rgb(var(--secondary))]"
+                                  : "border-[rgb(var(--border))] bg-transparent text-[rgb(var(--muted-foreground))] hover:bg-[rgb(var(--secondary))] hover:text-[rgb(var(--foreground))]"
+                              )}
+                            >
+                              {action.variant === "primary" && icon}
+                              {action.variant !== "primary" && (
+                                <span className="text-[rgb(var(--muted-foreground))]">
+                                  {icon}
+                                </span>
+                              )}
+                              {action.label}
+                            </motion.button>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </div>
+                </motion.div>
+              );
+            })}
+
+            {/* Typing indicator (AI, left-aligned, stable height) */}
+            {isThinking && (
+              <motion.div
+                key="thinking-indicator"
+                initial={{ opacity: 0, y: 6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={{ opacity: 0, y: -4 }}
+                transition={{ duration: 0.18 }}
+                className="mt-1"
+              >
+                <ThinkingIndicator />
+              </motion.div>
+            )}
+          </AnimatePresence>
+
+          <div ref={bottomRef} className="h-2" />
+        </div>
+      </div>
+
+      {/* Input area */}
+      <div className="border-t border-[rgb(var(--border))] bg-[rgb(var(--card))] p-4">
+        <form
+          onSubmit={(e) => void handleSubmit(e)}
+          className="mx-auto max-w-2xl space-y-2"
+        >
+          <div
+            className={cn(
+              "relative rounded-xl border bg-[rgb(var(--background))] transition-all duration-150",
+              isInputFocused
+                ? "border-[rgb(var(--os-accent))] ring-2 ring-[rgb(var(--os-accent)/0.12)]"
+                : "border-[rgb(var(--border))] hover:border-[rgb(var(--border)/0.8)]"
+            )}
+          >
+            <div className="pointer-events-none absolute left-3 top-3">
+              <MessageSquare className="h-4 w-4 text-[rgb(var(--muted-foreground))]" />
+            </div>
+            <textarea
+              value={input}
+              onChange={(e) => setInput(e.target.value)}
+              onKeyDown={handleKeyDown}
+              onFocus={() => setIsInputFocused(true)}
+              onBlur={() => setIsInputFocused(false)}
+              rows={2}
+              placeholder={
+                step === "intro"
+                  ? "Describe your brand, paste a website or social link, or ask me anything..."
+                  : "Ask questions, refine your Brand Brain, or add more context..."
+              }
+              className="max-h-32 w-full resize-none bg-transparent px-10 pb-3 pt-3 text-xs text-[rgb(var(--foreground))] outline-none placeholder:text-[rgb(var(--muted-foreground))] scrollbar-thin"
+            />
+            <div className="absolute right-3 top-1/2 -translate-y-1/2">
+              <button
+                type="submit"
+                disabled={!input.trim() || isThinking}
+                className={cn(
+                  "flex h-8 w-8 items-center justify-center rounded-full text-white transition-all",
+                  input.trim() && !isThinking
+                    ? "bg-[rgb(var(--os-accent))] hover:bg-[rgb(var(--os-accent)/0.9)] shadow-sm"
+                    : "bg-[rgb(var(--secondary))] text-[rgb(var(--muted-foreground))]"
+                )}
+                aria-label="Send message"
+              >
+                {isThinking ? (
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                ) : (
+                  <Send className="h-4 w-4" />
+                )}
+              </button>
+            </div>
+          </div>
+
+          {/* Footer helper row */}
+          <div className="flex items-center justify-between text-[0.7rem] text-[rgb(var(--muted-foreground))]">
+            <div className="flex items-center gap-2">
+              <span
+                className={cn(
+                  "h-2 w-2 rounded-full",
+                  isThinking ? "bg-yellow-500 animate-pulse" : "bg-emerald-500"
+                )}
+              />
+              <span>{isThinking ? "AI is thinking…" : "Ready to chat"}</span>
+            </div>
+            <div className="hidden items-center gap-3 sm:flex">
+              <div className="flex items-center gap-1">
+                <kbd className="rounded bg-[rgb(var(--secondary))] px-1.5 py-0.5 text-[0.65rem]">
+                  Enter
+                </kbd>
+                <span>to send</span>
+              </div>
+              <div className="flex items-center gap-1">
+                <kbd className="rounded bg-[rgb(var(--secondary))] px-1.5 py-0.5 text-[0.65rem]">
+                  Shift
+                </kbd>
+                <kbd className="rounded bg-[rgb(var(--secondary))] px-1.5 py-0.5 text-[0.65rem]">
+                  Enter
+                </kbd>
+                <span>for new line</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Contextual quick actions under input (intro/evidence only) */}
+          {(step === "intro" || step === "collecting_evidence") && !isThinking && (
+            <motion.div
+              initial={{ opacity: 0, y: 4 }}
+              animate={{ opacity: 1, y: 0 }}
+              className="flex flex-wrap gap-2 pt-1"
+            >
+              <button
+                type="button"
+                onClick={() =>
+                  handleActionClick({
+                    label: "Start GPT Analysis",
+                    action: "start-gpt-analysis",
+                    variant: "primary",
+                    raw: "",
+                  })
+                }
+                className="inline-flex items-center gap-1.5 rounded-lg border border-blue-300 bg-gradient-to-r from-blue-50 to-cyan-50 px-3 py-1.5 text-[0.7rem] font-medium text-blue-600 transition hover:from-blue-100 hover:to-cyan-100 dark:border-blue-900 dark:from-blue-900/20 dark:to-cyan-900/20 dark:text-blue-300 dark:hover:from-blue-900/30 dark:hover:to-cyan-900/30"
+              >
+                <Sparkles className="h-3 w-3" />
+                Start GPT Analysis
+              </button>
+              <button
+                type="button"
+                onClick={() =>
+                  handleActionClick({
+                    label: "Help me add evidence",
+                    action: "collect-evidence",
+                    variant: "secondary",
+                    raw: "",
+                  })
+                }
+                className="inline-flex items-center gap-1.5 rounded-lg border border-[rgb(var(--border))] px-3 py-1.5 text-[0.7rem] font-medium text-[rgb(var(--muted-foreground))] transition hover:bg-[rgb(var(--secondary))] hover:text-[rgb(var(--foreground))]"
+              >
+                <MessageSquare className="h-3 w-3" />
+                Add website / socials
+              </button>
+            </motion.div>
+          )}
+        </form>
+      </div>
+    </div>
+  );
+};
+
+export default OnboardingChat;
